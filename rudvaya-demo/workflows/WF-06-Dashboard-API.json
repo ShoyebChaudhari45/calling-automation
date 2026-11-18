@@ -144,7 +144,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT l.id, l.name, l.phone_e164, l.status, l.attempt_count, l.do_not_contact,\n       ca.started_at AS last_call_at, ca.status AS last_call_status, ca.summary AS last_call_summary, ca.mode AS last_call_mode,\n       ft.due_at AS next_task_due_at, ft.status AS next_task_status\nFROM leads l\nLEFT JOIN LATERAL (\n  SELECT * FROM call_attempts WHERE lead_id = l.id ORDER BY started_at DESC LIMIT 1\n) ca ON true\nLEFT JOIN LATERAL (\n  SELECT * FROM followup_tasks WHERE lead_id = l.id AND status = 'pending' ORDER BY due_at ASC LIMIT 1\n) ft ON true\nORDER BY l.created_at DESC\nLIMIT 200;"
+        "query": "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) AS items FROM (\n  SELECT l.id, l.name, l.phone_e164, l.status, l.attempt_count, l.do_not_contact,\n         ca.started_at AS last_call_at, ca.ended_at AS last_call_ended_at, ca.status AS last_call_status, ca.mode AS last_call_mode,\n         ca.duration_seconds AS last_call_duration_seconds, ca.transcript AS last_call_transcript,\n         ca.summary AS last_call_summary, ca.classification AS last_call_classification, ca.recording_url AS last_call_recording_url,\n         ft.due_at AS next_task_due_at, ft.status AS next_task_status\n  FROM leads l\n  LEFT JOIN LATERAL (\n    SELECT * FROM call_attempts WHERE lead_id = l.id ORDER BY started_at DESC LIMIT 1\n  ) ca ON true\n  LEFT JOIN LATERAL (\n    SELECT * FROM followup_tasks WHERE lead_id = l.id AND status = 'pending' ORDER BY due_at ASC LIMIT 1\n  ) ft ON true\n  ORDER BY l.created_at DESC\n  LIMIT 200\n) t;"
       },
       "id": "f0000000-0031-4000-8000-000000000031",
       "name": "Query Leads",
@@ -164,21 +164,8 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
-      },
-      "id": "f0000000-0032-4000-8000-000000000032",
-      "name": "Wrap As Array",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        380,
-        -200
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "firstIncomingItem",
+        "respondWith": "json",
+        "responseBody": "={{ $json.items }}",
         "options": {}
       },
       "id": "f0000000-0033-4000-8000-000000000033",
@@ -210,7 +197,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT a.id, a.type, a.requested_time_text, a.scheduled_at, a.status, a.assigned_to, a.notes, a.simulated, a.created_at,\n       l.name AS lead_name, l.phone_e164\nFROM appointments a\nJOIN leads l ON l.id = a.lead_id\nORDER BY a.created_at DESC\nLIMIT 100;"
+        "query": "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) AS items FROM (\n  SELECT a.id, a.type, a.requested_time_text, a.scheduled_at, a.status, a.assigned_to, a.notes, a.simulated, a.created_at,\n         l.name AS lead_name, l.phone_e164\n  FROM appointments a\n  JOIN leads l ON l.id = a.lead_id\n  ORDER BY a.created_at DESC\n  LIMIT 100\n) t;"
       },
       "id": "f0000000-0041-4000-8000-000000000041",
       "name": "Query Appointments",
@@ -230,21 +217,8 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
-      },
-      "id": "f0000000-0042-4000-8000-000000000042",
-      "name": "Wrap Appointments Array",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        380,
-        -40
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "firstIncomingItem",
+        "respondWith": "json",
+        "responseBody": "={{ $json.items }}",
         "options": {}
       },
       "id": "f0000000-0043-4000-8000-000000000043",
@@ -276,7 +250,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT 'call' AS kind, ca.id, ca.lead_id, l.name AS lead_name, ca.status AS detail,\n       (CASE WHEN ca.mode = 'live_bolna' THEN 'LIVE' ELSE 'SIMULATED' END) AS badge, ca.started_at AS at\nFROM call_attempts ca JOIN leads l ON l.id = ca.lead_id\nUNION ALL\nSELECT 'message', m.id, m.lead_id, l.name, COALESCE(m.template_name, m.direction),\n       (CASE WHEN m.simulated THEN 'SIMULATED' ELSE 'LIVE' END), m.created_at\nFROM messages m JOIN leads l ON l.id = m.lead_id\nUNION ALL\nSELECT 'audit', ae.id, ae.lead_id, NULL, ae.event_type, 'SYSTEM', ae.created_at\nFROM audit_events ae\nORDER BY at DESC\nLIMIT 30;"
+        "query": "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) AS items FROM (\n  SELECT 'call' AS kind, ca.id, ca.lead_id, l.name AS lead_name, ca.status AS detail,\n         (CASE WHEN ca.mode = 'live_bolna' THEN 'LIVE' ELSE 'SIMULATED' END) AS badge, ca.started_at AS at\n  FROM call_attempts ca JOIN leads l ON l.id = ca.lead_id\n  UNION ALL\n  SELECT 'message', m.id, m.lead_id, l.name, COALESCE(m.template_name, m.direction),\n         (CASE WHEN m.simulated THEN 'SIMULATED' ELSE 'LIVE' END), m.created_at\n  FROM messages m JOIN leads l ON l.id = m.lead_id\n  UNION ALL\n  SELECT 'audit', ae.id, ae.lead_id, NULL, ae.event_type, 'SYSTEM', ae.created_at\n  FROM audit_events ae\n  ORDER BY at DESC\n  LIMIT 30\n) t;"
       },
       "id": "f0000000-0051-4000-8000-000000000051",
       "name": "Query Activity",
@@ -296,21 +270,8 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
-      },
-      "id": "f0000000-0052-4000-8000-000000000052",
-      "name": "Wrap Activity Array",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        380,
-        140
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "firstIncomingItem",
+        "respondWith": "json",
+        "responseBody": "={{ $json.items }}",
         "options": {}
       },
       "id": "f0000000-0053-4000-8000-000000000053",
@@ -481,28 +442,6 @@
         ]
       ]
     },
-    "Query Leads": {
-      "main": [
-        [
-          {
-            "node": "Wrap As Array",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wrap As Array": {
-      "main": [
-        [
-          {
-            "node": "Respond Leads JSON",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "GET /api/appointments": {
       "main": [
         [
@@ -514,55 +453,11 @@
         ]
       ]
     },
-    "Query Appointments": {
-      "main": [
-        [
-          {
-            "node": "Wrap Appointments Array",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wrap Appointments Array": {
-      "main": [
-        [
-          {
-            "node": "Respond Appointments JSON",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "GET /api/activity": {
       "main": [
         [
           {
             "node": "Query Activity",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Query Activity": {
-      "main": [
-        [
-          {
-            "node": "Wrap Activity Array",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wrap Activity Array": {
-      "main": [
-        [
-          {
-            "node": "Respond Activity JSON",
             "type": "main",
             "index": 0
           }
@@ -607,6 +502,39 @@
         [
           {
             "node": "Redirect To Upload Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Leads": {
+      "main": [
+        [
+          {
+            "node": "Respond Leads JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Appointments": {
+      "main": [
+        [
+          {
+            "node": "Respond Appointments JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Activity": {
+      "main": [
+        [
+          {
+            "node": "Respond Activity JSON",
             "type": "main",
             "index": 0
           }

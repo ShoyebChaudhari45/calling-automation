@@ -198,7 +198,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "0617eb09-218f-44b6-8fe8-86177ae36393",
+        "workflowId": {
+          "__rl": true,
+          "value": "0617eb09-218f-44b6-8fe8-86177ae36393",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "call_attempt_id": "={{$('End Call').first().json.body.attempt_id}}",

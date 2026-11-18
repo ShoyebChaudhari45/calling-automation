@@ -6,15 +6,26 @@ This is a runnable DEMO (not production) of the plan in
 simulated; everything else runs on your Windows laptop plus a free Supabase
 Postgres project.
 
-**Status at hand-off:** Node.js and n8n (v2.22.6) are installed and running
-on this machine, and the `n8n-nodes-bolna` community node is installed. The
-Supabase project and Bolna agent do not exist yet. Where a value couldn't be
-verified without your own accounts, it's marked **TODO** with a sticky
-note in the workflow JSON — fix those once you can see the real thing.
-Several things that were originally guessed have since been **confirmed**
-against the installed `n8n-nodes-bolna` v0.1.2 source and Bolna's public API
-docs (see "Resolved since initial build" below) — WF-02 and WF-03 were
-updated accordingly and no longer carry TODOs for those specific items.
+**Status: fully deployed and working on this machine.** Node.js, n8n
+(v2.22.6), the `n8n-nodes-bolna` community node, the Supabase project +
+schema, the Postgres/OpenAI/Bolna credentials, the Bolna voice agent, and
+all 7 workflows are installed, imported, published, and active. A real
+end-to-end call (CSV upload → eligibility gate → live Bolna call → your
+phone ringing → Bolna recording/transcript) has been verified. If you're
+setting this up fresh on a **different** machine, follow sections 1–6 below
+in order; if you're picking this repo up as-is on **this** machine, skip to
+section 6 ("Everyday use") and section "Where to find recordings,
+transcripts and dashboard data".
+
+Several node parameters that are easy to get wrong were corrected against
+the real installed package source and live API responses rather than
+guessed — see "Resolved since initial build" further down for the exact
+list (Postgres SSL, the `insert` operation's actual parameter shape, the
+Merge node's real `append` mode schema, the Execute Workflow node's
+resource-locator `workflowId` format, Bolna's `userData` needing a JSON
+string not an object, and an item-shape rule that silently empties array
+API responses). If you hit a similar "works in theory, breaks in the real
+n8n version" issue, check that section first.
 
 ---
 
@@ -217,15 +228,46 @@ credential not selected or a workflow not yet Active.
 
 ## 6. Everyday use
 
-- **Start n8n:** open PowerShell, `$env:GENERIC_TIMEZONE = "Asia/Kolkata"`
-  then `n8n start`. Leave the window open.
+- **Start n8n:** open PowerShell and run:
+  ```powershell
+  $env:GENERIC_TIMEZONE = "Asia/Kolkata"
+  $env:N8N_RESTRICT_FILE_ACCESS_TO = "D:\automation\rudvaya-demo\pages;C:\Users\admin\.n8n-files"
+  n8n start
+  ```
+  The second variable is required — n8n 2.x sandboxes filesystem access for
+  the Read/Write File nodes that serve the dashboard/WhatsApp/simulator
+  pages, and defaults to only allowing `~/.n8n-files`. Without it, those
+  three pages return a blank 200 response instead of the HTML. Leave the
+  window open; closing it stops n8n.
 - **Dashboard:** http://localhost:5678/webhook/dashboard
 - **Mock WhatsApp inbox:** http://localhost:5678/webhook/whatsapp
-- **Upload leads:** open WF-01 in the n8n editor, click the "Upload Leads
-  CSV" node, copy its **Production URL**, open that URL in a browser, pick
-  `data/sample_leads.csv`.
+- **Upload leads:** http://localhost:5678/form/wf01-upload-leads — pick
+  `data/sample_leads.csv` (or your own file in the same column layout).
 - **Call simulator:** opens automatically from the dashboard's "Call now"
   button when `app_config.call_mode = 'simulated'`.
+
+## Where to find recordings, transcripts and dashboard data
+
+- **Dashboard, click any lead row:** opens a detail panel with the last
+  call's status, duration, an inline audio player + direct link for the
+  Bolna recording (LIVE calls only — simulated calls have no recording),
+  the full transcript, and the raw AI classification JSON. This reads
+  straight from `call_attempts.transcript` / `.recording_url` /
+  `.classification`, populated by WF-03 once a call completes.
+- **Mock WhatsApp inbox** (`/webhook/whatsapp`): every simulated message
+  thread, per lead, with delivery ticks.
+- **Raw SQL**, if you want it directly:
+  ```sql
+  select lead_id, mode, status, duration_seconds, recording_url, transcript, classification
+  from call_attempts order by started_at desc limit 20;
+  ```
+- **Bolna's own dashboard** (bolna.ai → Monitor → Call History) is the
+  source of truth for recordings/transcripts if anything looks wrong in
+  Supabase — WF-03 just copies what Bolna's API returns.
+- A call only shows transcript/recording data once it reaches a terminal
+  status (`completed`, `no-answer`, etc.) — WF-03 polls Bolna every 15
+  seconds (up to 10 minutes) after the call is placed, so give it a minute
+  after a live call ends before expecting the dashboard row to fill in.
 
 ### Switching between live and simulated calls
 
@@ -317,16 +359,82 @@ and WF-02/WF-03 were updated to match:
 - No separate Header Auth credential is needed for WF-03 — it reuses
   `Rudvaya Bolna API`.
 
-## Open TODOs (do not demo until resolved)
+**Found and fixed during live end-to-end testing on this machine** (each of
+these broke a real run; fixed by reading the actual installed node source
+or a real API response rather than guessing twice):
 
-1. Confirm your n8n version's exact Form Trigger / Form completion node
-   behaviour (WF-01) — some n8n releases handle the "completion page"
-   directly on the Form Trigger node instead of a separate `n8n-nodes-base.form`
-   node.
-2. After importing all seven workflows, go back and fill in every
-   `REPLACE_WITH_WF0X_WORKFLOW_ID` and `REPLACE_WITH_THIS_WORKFLOWS_OWN_ID`
-   placeholder in the `Execute Workflow` nodes.
-3. Replace the three `C:\REPLACE\...` file paths for the dashboard,
-   WhatsApp inbox and simulator pages.
-4. Run every test in `TESTS.md` and record PASS/FAIL before the first
-   rehearsal.
+- **Postgres credential TLS**: Supabase's pooler cert needs
+  `allowUnauthorizedCerts: true` on the credential ("Ignore SSL Issues") —
+  without it every query fails with `self-signed certificate in
+  certificate chain`.
+- **`N8N_RESTRICT_FILE_ACCESS_TO`**: n8n 2.x's Read/Write File node refuses
+  any path outside `~/.n8n-files` by default — the dashboard/WhatsApp/
+  simulator pages need this env var set to this repo's `pages/` folder (see
+  §6 above) or they silently return an empty 200 response.
+- **Postgres node `insert` operation** (used in WF-01 "Log Rejected" and
+  WF-02 "Blocked Audit"): doesn't accept a positional `queryReplacement`
+  array the way `executeQuery` does — switched both to `executeQuery` with
+  an explicit `INSERT ... VALUES ($1, $2, ...)` query.
+- **Merge node v3 "append" mode**: the real parameter shape is
+  `{ "mode": "append", "numberInputs": 2 }`, not a `combinationMode` field —
+  fixed in WF-01's "Merge Append" node.
+- **Array API endpoints returning empty instead of `[]`**: n8n rejects an
+  item whose `.json` is an array (`"A 'json' property isn't an object"`).
+  Fixed by aggregating rows into a single JSON array column in SQL
+  (`COALESCE(json_agg(row_to_json(t)), '[]'::json)`) so the query always
+  returns exactly one row, and having the Respond node emit `$json.items`
+  directly — no code-node array-wrapping needed. Affects WF-06's
+  `/api/leads`, `/api/appointments`, `/api/activity` and WF-04's
+  `/api/messages`.
+- **Execute Workflow node's `workflowId` parameter**: on this n8n version
+  it's a resource-locator object, not a bare string —
+  `{ "__rl": true, "value": "<id>", "mode": "id" }`. Affects every
+  cross-workflow call (WF-02→WF-03, WF-03→WF-04, WF-05→WF-02,
+  WF-07→WF-03, WF-04's self-calls).
+- **Bolna `userData` field**: must be a JSON **string**
+  (`JSON.stringify({...})`), not a live object — the node calls
+  `JSON.parse` on it internally and throws `User Data must be valid JSON`
+  otherwise.
+- **Call attempt idempotency vs. the webhook response**: if `Create Call
+  Attempt`'s `ON CONFLICT DO NOTHING` genuinely finds a duplicate (0 rows),
+  the downstream code node wouldn't run at all (n8n skips nodes that
+  receive zero input items), leaving the HTTP request hanging forever
+  instead of returning `{"blocked_reason": "call_already_in_progress"}`.
+  Fixed with `alwaysOutputData: true` on that Postgres node plus a check in
+  `Merge Attempt Result` for a missing `call_attempt_id` instead of array
+  length.
+- **Bolna agent defaults**: a freshly-created agent (via the API) defaults
+  to `call_terminate: 90` (seconds), not the ~5 minutes the plan calls
+  for — fixed via a `PUT /v2/agent/{id}` to 300. Also added
+  `call_hangup_message` (a goodbye line instead of an abrupt cutoff) and
+  `hangup_after_LLMCall: true` (lets the agent's own conversational
+  judgement end the call instead of relying only on the silence/duration
+  timeouts) — both confirmed as real fields from the agent's own `GET`
+  response before being set.
+
+## Open TODOs
+
+All of the original setup TODOs (Form Trigger behaviour, cross-workflow
+`workflowId` placeholders, the three file paths) are resolved on this
+machine — see "Resolved since initial build" above. What's still genuinely
+open:
+
+1. **Rotate the OpenAI and Bolna API keys** that were pasted into this chat
+   at setup time (noted at the time; n8n already has them stored encrypted,
+   so rotating just means generating a new key and re-importing the
+   credential — you don't need to touch the workflows).
+2. Only one number (`+917499601744`) is in `call_allowlist` — add a second
+   verified number there if you want the "two phones" part of the 15-minute
+   demo script.
+3. Full pass through every row of `TESTS.md` hasn't been run end-to-end (CSV
+   import, opt-out, callback scheduling, etc. were spot-checked, not all 15
+   formally recorded) — worth doing once before a client-facing demo, since
+   the instruction for this session was "don't test again and again" for
+   further live phone calls specifically.
+4. `WF-05`'s per-minute schedule trigger and other scheduled/async paths
+   (callback re-dial, missed-call WhatsApp flow, opt-out-cancels-callback)
+   haven't been exercised with a real completed call yet, since the only
+   two real test calls so far were cut short by the caller hanging up
+   before the agent's first substantive response — once a future call
+   actually completes, double check `call_attempts.classification` lands
+   correctly and the lead's status/appointment/followup_task updates match.

@@ -139,17 +139,8 @@
     },
     {
       "parameters": {
-        "operation": "insert",
-        "schema": {
-          "value": "public"
-        },
-        "table": {
-          "value": "import_rejects"
-        },
-        "columns": {
-          "value": "raw,reason"
-        },
-        "additionalFields": {},
+        "operation": "executeQuery",
+        "query": "INSERT INTO import_rejects (raw, reason) VALUES ($1::jsonb, $2) RETURNING reason;",
         "options": {
           "queryReplacement": "={{ [JSON.stringify($json.raw), $json.reason] }}"
         }
@@ -168,13 +159,12 @@
           "name": "Rudvaya Supabase Postgres"
         }
       },
-      "notes": "CREDENTIAL REQUIRED: select your Supabase Postgres credential. If the node's Insert UI does not accept a raw/positional parameter array for jsonb, switch this node to 'Execute Query' with: INSERT INTO import_rejects (raw, reason) VALUES ($1::jsonb, $2) and Query Parameters {{JSON.stringify($json.raw)}}, {{$json.reason}}."
+      "notes": "CREDENTIAL REQUIRED: select your Supabase Postgres credential."
     },
     {
       "parameters": {
-        "mode": "combine",
-        "combinationMode": "multiplex",
-        "options": {}
+        "mode": "append",
+        "numberInputs": 2
       },
       "id": "a1111111-0008-4000-8000-000000000008",
       "name": "Merge Append",
@@ -183,8 +173,7 @@
       "position": [
         1080,
         10
-      ],
-      "notes": "Set Mode = Append in the node UI (combine/multiplex is a placeholder — n8n's Merge node 'Append' mode just concatenates both inputs' items in order received)."
+      ]
     },
     {
       "parameters": {

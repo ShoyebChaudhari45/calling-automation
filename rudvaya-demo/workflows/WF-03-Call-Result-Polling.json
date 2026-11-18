@@ -382,7 +382,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowId": {
+          "__rl": true,
+          "value": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$('Check Finished').first().json.lead_id}}",
@@ -769,7 +773,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowId": {
+          "__rl": true,
+          "value": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$json.lead_id}}",
@@ -817,7 +825,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowId": {
+          "__rl": true,
+          "value": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$json.lead_id}}",

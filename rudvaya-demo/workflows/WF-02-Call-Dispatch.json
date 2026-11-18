@@ -147,6 +147,7 @@
           "queryReplacement": "={{ [$json.id, $json.call_mode, $json.reason, $json.idempotency_key] }}"
         }
       },
+      "alwaysOutputData": true,
       "id": "b2000000-0009-4000-8000-000000000009",
       "name": "Create Call Attempt",
       "type": "n8n-nodes-base.postgres",
@@ -166,7 +167,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "if ($input.all().length === 0) {\n  return [{ json: { duplicate: true } }];\n}\nconst eligNode = $('Eligibility Gate').first().json;\nreturn [{ json: { duplicate: false, call_attempt_id: $input.first().json.call_attempt_id, ...eligNode } }];"
+        "jsCode": "const items = $input.all();\nconst callAttemptId = items.length ? items[0].json.call_attempt_id : undefined;\nif (!callAttemptId) {\n  return [{ json: { duplicate: true } }];\n}\nconst eligNode = $('Eligibility Gate').first().json;\nreturn [{ json: { duplicate: false, call_attempt_id: callAttemptId, ...eligNode } }];"
       },
       "id": "b2000000-0010-4000-8000-000000000010",
       "name": "Merge Attempt Result",
@@ -277,7 +278,7 @@
         "agentId": "={{$json.bolna_agent_id}}",
         "recipientPhoneNumber": "={{$json.phone_e164}}",
         "additionalFields": {
-          "userData": "={{ { lead_name: $json.name, property_name: $json.property ? $json.property.name : '', property_facts: $json.property_facts } }}"
+          "userData": "={{ JSON.stringify({ lead_name: $json.name, property_name: $json.property ? $json.property.name : '', property_facts: $json.property_facts }) }}"
         }
       },
       "id": "b2000000-0016-4000-8000-000000000016",
@@ -294,7 +295,7 @@
           "name": "Rudvaya Bolna API"
         }
       },
-      "notes": "CREDENTIAL REQUIRED. TODO: confirm resource/operation/field names (agentId, recipientPhoneNumber, userData) against your installed n8n-nodes-bolna version's actual node UI — rename parameters here to match if different."
+      "notes": "CREDENTIAL REQUIRED. Verified against installed n8n-nodes-bolna v0.1.2: userData must be a JSON STRING (the node calls JSON.parse on it internally), not a live object — wrapped with JSON.stringify()."
     },
     {
       "parameters": {
@@ -323,7 +324,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "0617eb09-218f-44b6-8fe8-86177ae36393",
+        "workflowId": {
+          "__rl": true,
+          "value": "0617eb09-218f-44b6-8fe8-86177ae36393",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "call_attempt_id": "={{$('Merge Attempt Result').first().json.call_attempt_id}}",
@@ -376,18 +381,10 @@
     },
     {
       "parameters": {
-        "operation": "insert",
-        "schema": {
-          "value": "public"
-        },
-        "table": {
-          "value": "audit_events"
-        },
-        "columns": {
-          "value": "lead_id,actor,event_type,details"
-        },
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_events (lead_id, actor, event_type, details) VALUES ($1, 'system', 'call_blocked', $2::jsonb);",
         "options": {
-          "queryReplacement": "={{ [$json.id, 'system', 'call_blocked', JSON.stringify({ reason: $json.block_reason })] }}"
+          "queryReplacement": "={{ [$json.id, JSON.stringify({ reason: $json.block_reason })] }}"
         }
       },
       "id": "b2000000-0021-4000-8000-000000000021",
@@ -404,7 +401,7 @@
           "name": "Rudvaya Supabase Postgres"
         }
       },
-      "notes": "CREDENTIAL REQUIRED. If the Insert UI rejects a jsonb positional param, switch to Execute Query: INSERT INTO audit_events (lead_id, actor, event_type, details) VALUES ($1, 'system', 'call_blocked', $2::jsonb)."
+      "notes": "CREDENTIAL REQUIRED."
     },
     {
       "parameters": {

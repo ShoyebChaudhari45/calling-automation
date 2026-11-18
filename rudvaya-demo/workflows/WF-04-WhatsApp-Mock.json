@@ -521,7 +521,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowId": {
+          "__rl": true,
+          "value": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$json.lead_id}}",
@@ -569,7 +573,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowId": {
+          "__rl": true,
+          "value": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$json.lead_id}}",
@@ -618,7 +626,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowId": {
+          "__rl": true,
+          "value": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$json.lead_id}}",
@@ -778,7 +790,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT m.id, m.lead_id, l.name AS lead_name, l.phone_e164, m.direction, m.template_name, m.body, m.status, m.simulated, m.created_at\nFROM messages m JOIN leads l ON l.id = m.lead_id\nORDER BY m.created_at DESC\nLIMIT 200;"
+        "query": "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) AS items FROM (\n  SELECT m.id, m.lead_id, l.name AS lead_name, l.phone_e164, m.direction, m.template_name, m.body, m.status, m.simulated, m.created_at\n  FROM messages m JOIN leads l ON l.id = m.lead_id\n  ORDER BY m.created_at DESC\n  LIMIT 200\n) t;"
       },
       "id": "d4000000-0044-4000-8000-000000000044",
       "name": "Query Messages",
@@ -798,21 +810,8 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
-      },
-      "id": "d4000000-0045-4000-8000-000000000045",
-      "name": "Wrap Messages Array",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        340,
-        600
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "firstIncomingItem",
+        "respondWith": "json",
+        "responseBody": "={{ $json.items }}",
         "options": {}
       },
       "id": "d4000000-0046-4000-8000-000000000046",
@@ -1149,17 +1148,6 @@
       ]
     },
     "Query Messages": {
-      "main": [
-        [
-          {
-            "node": "Wrap Messages Array",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wrap Messages Array": {
       "main": [
         [
           {

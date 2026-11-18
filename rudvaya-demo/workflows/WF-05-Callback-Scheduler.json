@@ -175,7 +175,11 @@
     {
       "parameters": {
         "source": "database",
-        "workflowId": "7f304555-2a66-4260-9663-de1749451a7f",
+        "workflowId": {
+          "__rl": true,
+          "value": "7f304555-2a66-4260-9663-de1749451a7f",
+          "mode": "id"
+        },
         "workflowInputs": {
           "value": {
             "lead_id": "={{$json.lead_id}}",
