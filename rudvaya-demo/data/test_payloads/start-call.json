@@ -1,0 +1,5 @@
+{
+  "_comment": "POST to http://localhost:5678/webhook/start-call (WF-02). Replace lead_id with a real id from `select id, name from leads;` in Supabase.",
+  "lead_id": "REPLACE_WITH_LEAD_UUID",
+  "reason": "manual"
+}

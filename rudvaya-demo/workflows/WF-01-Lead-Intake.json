@@ -1,0 +1,324 @@
+{
+  "name": "WF-01 · Lead Intake, Validation & Deduplication",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WF-01 · Lead Intake\n\n**Credentials needed on nodes below:**\n- Upsert Lead (Postgres)\n- Log Rejected (Postgres)\n\nBoth use your Supabase Postgres credential (Session pooler, SSL on).\n\n**TODO before first run:** open n8n → Settings → Community Nodes if not already done for WF-02 (n8n-nodes-bolna is not used in this workflow, no action needed here). Verify the Form Trigger node type/parameters match your installed n8n version — node UI differs slightly between n8n 1.3x branches; field names here follow the current (late-2026) Form Trigger schema. If your version differs, re-create the file field manually.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "a1111111-0001-4000-8000-000000000001",
+      "name": "Sticky: Credentials & TODO",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "Upload leads",
+        "formDescription": "Upload a CSV of leads. Duplicates and invalid rows are reported after import.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Leads CSV",
+              "fieldType": "file",
+              "requiredField": true,
+              "acceptFileTypes": ".csv"
+            }
+          ]
+        },
+        "options": {
+          "respondWithOptions": {
+            "values": {
+              "respondWith": "showText",
+              "formSubmittedText": "Processing your file..."
+            }
+          }
+        }
+      },
+      "id": "a1111111-0002-4000-8000-000000000002",
+      "name": "Upload Leads CSV",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -60,
+        0
+      ],
+      "webhookId": "wf01-upload-leads"
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {
+          "headerRow": true
+        },
+        "binaryPropertyName": "Leads_CSV"
+      },
+      "id": "a1111111-0003-4000-8000-000000000003",
+      "name": "Read CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        160,
+        0
+      ],
+      "notes": "TODO: confirm the binary property name matches the file field key your n8n version generates (often the field label with spaces replaced by underscores). Check in the editor by running once and inspecting the Form Trigger output."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Normalize phone to E.164, validate name/phone/consent, flag in-file duplicates\nconst seen = new Set();\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  const name = (r.name || '').trim();\n  let digits = String(r.phone || '').replace(/[^\\d+]/g, '');\n  let phone = null;\n  if (/^\\+91[6-9]\\d{9}$/.test(digits)) phone = digits;\n  else if (/^91[6-9]\\d{9}$/.test(digits)) phone = '+' + digits;\n  else if (/^0?[6-9]\\d{9}$/.test(digits)) phone = '+91' + digits.slice(-10);\n  // anything else (wrong length, landline, foreign) is NOT guessed\n\n  const consent = ['yes', 'true', '1', 'y'].includes(String(r.consent || '').trim().toLowerCase());\n\n  let reason = null;\n  if (!name) reason = 'missing_name';\n  else if (!phone) reason = 'invalid_phone';\n  else if (!consent) reason = 'missing_consent';\n  else if (seen.has(phone)) reason = 'duplicate_in_file';\n\n  if (phone && !reason) seen.add(phone);\n\n  out.push({\n    json: {\n      valid: !reason,\n      reason,\n      name,\n      phone_e164: phone,\n      email: (r.email || '').trim() || null,\n      source: r.source || 'csv',\n      property_interest: r.property_interest || null,\n      budget: r.budget || null,\n      location: r.location || null,\n      consent,\n      consent_source: r.consent_source || null,\n      raw: r\n    }\n  });\n}\nreturn out;"
+      },
+      "id": "a1111111-0004-4000-8000-000000000004",
+      "name": "Normalize & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "b1111111-0005-4000-8000-000000000005",
+              "leftValue": "={{$json.valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1111111-0005-4000-8000-000000000005",
+      "name": "Valid & consented?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO leads (client_id, name, phone_e164, email, source, property_interest, budget, location, consent, consent_source, consent_at)\nVALUES ('demo', $1, $2, $3, $4, $5, $6, $7, true, $8, now())\nON CONFLICT (client_id, phone_e164) DO UPDATE\n  SET name = EXCLUDED.name,\n      source = EXCLUDED.source,\n      property_interest = COALESCE(EXCLUDED.property_interest, leads.property_interest),\n      budget = COALESCE(EXCLUDED.budget, leads.budget),\n      updated_at = now()\n  -- do_not_contact is intentionally never touched here\nRETURNING id, (xmax = 0) AS inserted;",
+        "options": {
+          "queryReplacement": "={{ [$json.name, $json.phone_e164, $json.email, $json.source, $json.property_interest, $json.budget, $json.location, $json.consent_source] }}"
+        }
+      },
+      "id": "a1111111-0006-4000-8000-000000000006",
+      "name": "Upsert Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        860,
+        -120
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED: select your Supabase Postgres credential."
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "value": "public"
+        },
+        "table": {
+          "value": "import_rejects"
+        },
+        "columns": {
+          "value": "raw,reason"
+        },
+        "additionalFields": {},
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.raw), $json.reason] }}"
+        }
+      },
+      "id": "a1111111-0007-4000-8000-000000000007",
+      "name": "Log Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        860,
+        140
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED: select your Supabase Postgres credential. If the node's Insert UI does not accept a raw/positional parameter array for jsonb, switch this node to 'Execute Query' with: INSERT INTO import_rejects (raw, reason) VALUES ($1::jsonb, $2) and Query Parameters {{JSON.stringify($json.raw)}}, {{$json.reason}}."
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "a1111111-0008-4000-8000-000000000008",
+      "name": "Merge Append",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1080,
+        10
+      ],
+      "notes": "Set Mode = Append in the node UI (combine/multiplex is a placeholder — n8n's Merge node 'Append' mode just concatenates both inputs' items in order received)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\nlet created = 0, updated = 0, dupesInFile = 0, invalid = 0;\nfor (const item of items) {\n  const j = item.json;\n  if (j.reason === 'duplicate_in_file') { dupesInFile++; continue; }\n  if (j.reason) { invalid++; continue; }\n  if (j.inserted === true) created++;\n  else if (j.inserted === false) updated++;\n}\nreturn [{ json: { created, updated, dupesInFile, invalid } }];"
+      },
+      "id": "a1111111-0009-4000-8000-000000000009",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        10
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "text",
+        "completionTitle": "Import complete",
+        "completionMessage": "=Imported {{$json.created}} new, {{$json.updated}} already existed, {{$json.dupesInFile}} duplicates in file, {{$json.invalid}} invalid rows rejected."
+      },
+      "id": "a1111111-0010-4000-8000-000000000010",
+      "name": "Show Import Report",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        10
+      ],
+      "notes": "TODO: confirm 'n8n-nodes-base.form' with operation 'completion' is the correct closing-page node in your n8n version. In some versions the Form Trigger's own 'Respond With' = 'Form Page' handles this instead — if so, delete this node and set that option on 'Upload Leads CSV' directly."
+    }
+  ],
+  "connections": {
+    "Upload Leads CSV": {
+      "main": [
+        [
+          {
+            "node": "Read CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV": {
+      "main": [
+        [
+          {
+            "node": "Normalize & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize & Validate": {
+      "main": [
+        [
+          {
+            "node": "Valid & consented?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid & consented?": {
+      "main": [
+        [
+          {
+            "node": "Upsert Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Lead": {
+      "main": [
+        [
+          {
+            "node": "Merge Append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Rejected": {
+      "main": [
+        [
+          {
+            "node": "Merge Append",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Append": {
+      "main": [
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Show Import Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "d97efc06-e6f9-401b-bedb-c13cbc102d20",
+  "active": true
+}

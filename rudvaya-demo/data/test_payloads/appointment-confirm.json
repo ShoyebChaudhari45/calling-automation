@@ -1,0 +1,5 @@
+{
+  "_comment": "POST to http://localhost:5678/webhook/api/appointment/confirm (WF-06). Replace appointment_id with a real id from `select id from appointments;`.",
+  "appointment_id": "REPLACE_WITH_APPOINTMENT_UUID",
+  "assigned_to": "staff"
+}

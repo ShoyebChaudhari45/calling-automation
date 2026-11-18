@@ -1,0 +1,336 @@
+{
+  "name": "WF-07 · Browser Call Simulator (fallback)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WF-07 · Browser Call Simulator\n\nAlways shows 'SIMULATED — BROWSER DEMO, NOT A PHONE CALL' in the page itself (pages/simulator.html). This workflow only serves the page and the two JSON APIs it calls.\n\n**Credentials needed:** Postgres nodes use your Supabase credential; 'Agent Reply' uses Predefined Credential Type = OpenAi.\n\n**REPLACE after import:**\n- 'Read Simulator Page' file path\n- 'Classify Via WF-03' workflowId -> WF-03's imported id\n\nThe call_attempts row itself is created by WF-02 (mode=simulated) BEFORE the simulator page opens; this workflow only reads/updates that existing row via the ?attempt= id passed in the simulator URL.",
+        "height": 280,
+        "width": 480
+      },
+      "id": "f7000000-0001-4000-8000-000000000001",
+      "name": "Sticky: Credentials & TODO",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "simulator",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f7000000-0010-4000-8000-000000000010",
+      "name": "Simulator Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        -100
+      ],
+      "webhookId": "wf07-simulator-page"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "D:\\automation\\rudvaya-demo\\pages\\simulator.html",
+        "options": {}
+      },
+      "id": "f7000000-0011-4000-8000-000000000011",
+      "name": "Read Simulator Page",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -100
+      ],
+      "notes": "REPLACE fileSelector with the absolute path to pages/simulator.html on your laptop."
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f7000000-0012-4000-8000-000000000012",
+      "name": "Respond Simulator HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/sim-turn",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f7000000-0020-4000-8000-000000000020",
+      "name": "Chat Turn",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        100
+      ],
+      "webhookId": "wf07-sim-turn"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ca.id AS call_attempt_id, l.id AS lead_id, l.name AS lead_name,\n       (SELECT row_to_json(p) FROM (SELECT name, configurations, price_range, amenities, faqs FROM properties LIMIT 1) p) AS property,\n       (SELECT value FROM app_config WHERE key = 'openai_model') AS openai_model\nFROM call_attempts ca JOIN leads l ON l.id = ca.lead_id\nWHERE ca.id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.attempt_id] }}"
+        }
+      },
+      "id": "f7000000-0021-4000-8000-000000000021",
+      "name": "Load Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        120,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => {\n  const p = $json.property || {};\n  const facts = `${p.configurations || ''}; ${p.price_range || ''}; ${p.amenities || ''}; ${p.faqs || ''}`;\n  const system = `ROLE\\nYou are Priya, an AI voice assistant calling on behalf of the sales team of ${p.name || 'Aranya Heights'}. You are speaking to ${$json.lead_name}, who enquired about this project. You are an AI assistant and you must say so at the start of the call.\\n\\nLANGUAGE\\nStart in simple English. If the customer speaks Hindi, Marathi or Hinglish, switch to that language. Short sentences. One question at a time.\\n\\nOPENING (say exactly this idea, naturally)\\n\"Hello ${$json.lead_name}, this is Priya, an AI assistant calling from the ${p.name || 'Aranya Heights'} team about your recent enquiry. Is this a good time to talk for two minutes?\"\\n- If NO or busy: ask when would be a better time, confirm it, thank them, end.\\n\\nGOALS (in order, stop as soon as the customer wants to stop)\\n1. Confirm interest in ${p.name || 'the property'}.\\n2. Understand need: 2 BHK or 3 BHK, rough budget, purchase timeline.\\n3. Answer questions ONLY from the VERIFIED FACTS below.\\n4. Offer a site visit or an office meeting and capture a preferred day/time.\\n5. Close politely and say a team member will confirm on WhatsApp.\\n\\nVERIFIED FACTS (the only facts you may state)\\n${facts}\\nIf asked anything not covered here, say you will have a team member call back with exact details. Never guess numbers.\\n\\nHOW TO HANDLE THE CUSTOMER\\n- Interested: be warm, ask one qualifying question, offer a visit.\\n- Busy: ask for a callback time, confirm it, end quickly.\\n- Angry/frustrated: stay calm, apologise once, offer a human callback, end if asked.\\n- Not interested: thank them and end, do not push.\\n- Complaint/legal/safety: stop selling, say a senior team member will call back, end.\\n- \"Stop calling\"/\"dont call\"/\"remove my number\": acknowledge and end immediately, noting the opt-out.\\n\\nNEVER pretend to be human, pressure, promise discounts/availability/approvals, or ask for Aadhaar/PAN/bank details. Keep the whole call under 4 minutes.`;\n  const history = ($json.body?.history || []).map(h => ({ role: h.role === 'agent' ? 'assistant' : 'user', content: h.text }));\n  return JSON.stringify({\n    model: $json.openai_model,\n    temperature: 0.4,\n    messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: $json.body?.message || '' }]\n  });\n})() }}",
+        "options": {}
+      },
+      "id": "f7000000-0022-4000-8000-000000000022",
+      "name": "Agent Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        100
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "b763713c-92f4-4805-b42a-f076ab934e56",
+          "name": "Rudvaya OpenAI"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED (OpenAI). Uses the same agent prompt as the Bolna voice agent (plan §8.1), so the simulator behaves identically for demo purposes."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: $json.choices?.[0]?.message?.content || '(no reply)' } }}"
+      },
+      "id": "f7000000-0023-4000-8000-000000000023",
+      "name": "Return Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/sim-end",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f7000000-0030-4000-8000-000000000030",
+      "name": "End Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        300
+      ],
+      "webhookId": "wf07-sim-end"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE call_attempts SET transcript = $2, ended_at = now() WHERE id = $1 RETURNING lead_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.attempt_id, $json.body.transcript] }}"
+        }
+      },
+      "id": "f7000000-0031-4000-8000-000000000031",
+      "name": "Save Transcript Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        120,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. Saves the raw transcript immediately so it isn't lost even if classification below fails validation."
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "0617eb09-218f-44b6-8fe8-86177ae36393",
+        "workflowInputs": {
+          "value": {
+            "call_attempt_id": "={{$('End Call').first().json.body.attempt_id}}",
+            "execution_id": "",
+            "lead_id": "={{$json.lead_id}}",
+            "mode": "simulated",
+            "transcript": "={{$('End Call').first().json.body.transcript}}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f7000000-0032-4000-8000-000000000032",
+      "name": "Classify Via WF-03",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        340,
+        300
+      ],
+      "notes": "REPLACE workflowId with WF-03's id after import. Sends the simulated transcript down the exact same classification + validation + action path as a real Bolna call."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}"
+      },
+      "id": "f7000000-0033-4000-8000-000000000033",
+      "name": "Respond End OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Simulator Page": {
+      "main": [
+        [
+          {
+            "node": "Read Simulator Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Simulator Page": {
+      "main": [
+        [
+          {
+            "node": "Respond Simulator HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Turn": {
+      "main": [
+        [
+          {
+            "node": "Load Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Context": {
+      "main": [
+        [
+          {
+            "node": "Agent Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Reply": {
+      "main": [
+        [
+          {
+            "node": "Return Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "End Call": {
+      "main": [
+        [
+          {
+            "node": "Save Transcript Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Transcript Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Classify Via WF-03",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Via WF-03": {
+      "main": [
+        [
+          {
+            "node": "Respond End OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "3e5536cf-afc1-4f9c-bef7-0d75c27504f0",
+  "active": true
+}

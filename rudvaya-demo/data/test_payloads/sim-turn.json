@@ -1,0 +1,8 @@
+{
+  "_comment": "POST to http://localhost:5678/webhook/api/sim-turn (WF-07). Replace attempt_id with a call_attempts.id created in 'simulated' mode (returned by /start-call as call_attempt_id, or select id from call_attempts where mode='simulated' order by started_at desc limit 1;).",
+  "attempt_id": "REPLACE_WITH_CALL_ATTEMPT_UUID",
+  "message": "Yes, I'm interested in a 3 BHK, what's the price?",
+  "history": [
+    { "role": "agent", "text": "Hello, this is Priya, an AI assistant calling from the Aranya Heights team about your recent enquiry. Is this a good time to talk for two minutes?" }
+  ]
+}

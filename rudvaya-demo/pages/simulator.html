@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rudvaya · Call Simulator</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --panel: #ffffff; --text: #15202b; --muted: #5b6b79;
+    --border: #e2e8ee; --accent: #0f766e; --accent-ink: #ffffff;
+    --bubble-agent: #ffffff; --bubble-me: #dcf8c6; --warn-bg: #fde8e8; --warn-text: #991b1b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1620; --panel: #16202c; --text: #e6edf3; --muted: #93a3b1;
+      --border: #28333f; --accent: #2dd4bf; --accent-ink: #072320;
+      --bubble-agent: #1f2a36; --bubble-me: #1f3b2e; --warn-bg: #3a1212; --warn-text: #fca5a5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  .banner { background: var(--warn-bg); color: var(--warn-text); text-align: center; padding: 10px; font-weight: 700; font-size: 13px; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .chat { height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .bubble { max-width: 80%; padding: 8px 12px; border-radius: 10px; font-size: 14px; line-height: 1.4; }
+  .bubble.agent { align-self: flex-start; background: var(--bubble-agent); border: 1px solid var(--border); }
+  .bubble.me { align-self: flex-end; background: var(--bubble-me); }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .controls input { flex: 1; min-width: 160px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  button { border: none; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); }
+  button.secondary { background: #eef2f6; color: var(--text); }
+  button.danger { background: #dc2626; color: white; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  #mic-indicator.recording { color: #dc2626; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="banner">SIMULATED — BROWSER DEMO, NOT A PHONE CALL</div>
+<main>
+  <div class="panel">
+    <div class="chat" id="chat"></div>
+    <div class="controls">
+      <input id="text-input" type="text" placeholder="Type what the customer says (or use the mic button)" />
+      <button class="secondary" id="mic-btn">🎤 Hold to talk</button>
+      <button class="primary" id="send-btn">Send</button>
+      <button class="danger" id="end-btn">End call</button>
+    </div>
+    <div class="status" id="status">Starting…</div>
+    <div class="status" id="mic-indicator"></div>
+  </div>
+</main>
+<script>
+const params = new URLSearchParams(window.location.search);
+const attemptId = params.get('attempt');
+const history = []; // {role: 'agent'|'me', text}
+let ended = false;
+
+const chatEl = document.getElementById('chat');
+const statusEl = document.getElementById('status');
+const micIndicator = document.getElementById('mic-indicator');
+
+function addBubble(role, text) {
+  history.push({ role, text });
+  const div = document.createElement('div');
+  div.className = 'bubble ' + (role === 'agent' ? 'agent' : 'me');
+  div.textContent = text;
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-IN';
+    window.speechSynthesis.speak(u);
+  } catch (e) { /* speech synthesis optional */ }
+}
+
+async function sendTurn(message) {
+  if (!attemptId) { statusEl.textContent = 'Missing ?attempt= id in URL — open this page via the dashboard Call now button.'; return; }
+  addBubble('me', message);
+  statusEl.textContent = 'Agent is thinking…';
+  try {
+    const res = await fetch('/webhook/api/sim-turn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attempt_id: attemptId, message, history })
+    });
+    const data = await res.json();
+    addBubble('agent', data.reply);
+    speak(data.reply);
+    statusEl.textContent = 'Your turn — type or speak.';
+  } catch (e) {
+    statusEl.textContent = 'Request failed: ' + e.message;
+  }
+}
+
+document.getElementById('send-btn').addEventListener('click', () => {
+  const input = document.getElementById('text-input');
+  const text = input.value.trim();
+  if (!text || ended) return;
+  input.value = '';
+  sendTurn(text);
+});
+document.getElementById('text-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('send-btn').click();
+});
+
+document.getElementById('end-btn').addEventListener('click', async () => {
+  if (ended) return;
+  ended = true;
+  statusEl.textContent = 'Ending call and classifying transcript…';
+  const transcript = history.map(h => (h.role === 'agent' ? 'Agent: ' : 'Customer: ') + h.text).join('\n');
+  try {
+    await fetch('/webhook/api/sim-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attempt_id: attemptId, transcript })
+    });
+    statusEl.textContent = 'Call ended. Check the dashboard for the classification result.';
+  } catch (e) {
+    statusEl.textContent = 'End call failed: ' + e.message;
+  }
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('text-input').disabled = true;
+  document.getElementById('mic-btn').disabled = true;
+});
+
+// --- Web Speech API mic button, with text-only fallback if unsupported ---
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('mic-btn');
+if (!SpeechRecognition) {
+  micBtn.disabled = true;
+  micBtn.textContent = '🎤 Not supported — use text';
+} else {
+  const recognizer = new SpeechRecognition();
+  recognizer.lang = 'en-IN';
+  recognizer.interimResults = false;
+  recognizer.maxAlternatives = 1;
+
+  recognizer.onresult = (e) => {
+    const text = e.results[0][0].transcript;
+    document.getElementById('text-input').value = text;
+  };
+  recognizer.onend = () => micIndicator.classList.remove('recording');
+  recognizer.onerror = () => { micIndicator.classList.remove('recording'); micIndicator.textContent = 'Mic error — check browser microphone permission for localhost.'; };
+
+  let holding = false;
+  micBtn.addEventListener('mousedown', () => {
+    if (ended) return;
+    holding = true;
+    micIndicator.classList.add('recording');
+    micIndicator.textContent = 'Listening…';
+    try { recognizer.start(); } catch (e) {}
+  });
+  const stopHold = () => {
+    if (!holding) return;
+    holding = false;
+    try { recognizer.stop(); } catch (e) {}
+  };
+  micBtn.addEventListener('mouseup', stopHold);
+  micBtn.addEventListener('mouseleave', stopHold);
+}
+
+// Kick off with the agent's opening line on page load.
+sendTurn('(call connected)');
+</script>
+</body>
+</html>

@@ -1,0 +1,1180 @@
+{
+  "name": "WF-04 · WhatsApp Follow-up (Mock) & Inbound Replies",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WF-04 · Mock WhatsApp\n\nEvery message row is written with simulated = true. The inbox page shows a permanent 'SIMULATED — not sent via WhatsApp' banner.\n\n**Credentials needed:** all Postgres nodes use your Supabase credential; 'Classify Reply' uses Predefined Credential Type = OpenAi.\n\n**REPLACE after import:** the 'Send Ack (self)' Execute Workflow nodes must point at THIS workflow's own id (self-call to re-use Path A's send logic for opt-out/visit/callback acknowledgements). Also replace the file path in 'Read WhatsApp Page'.\n\n**Production swap note (plan §7, WF-04):** replace 'Write Outbox' + 'Mark Delivered' with an HTTP Request to the Meta WhatsApp Cloud API (approved templates, opted-in numbers), and replace 'Customer Reply' webhook with Meta's verified webhook. Everything from 'Save Inbound' onward stays the same.",
+        "height": 340,
+        "width": 520
+      },
+      "id": "d4000000-0001-4000-8000-000000000001",
+      "name": "Sticky: Credentials & TODO",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "lead_id"
+            },
+            {
+              "name": "template_name"
+            },
+            {
+              "name": "requested_time_text"
+            },
+            {
+              "name": "callback_time"
+            }
+          ]
+        }
+      },
+      "id": "d4000000-0010-4000-8000-000000000010",
+      "name": "Send Request",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -100,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, phone_e164, do_not_contact, property_interest FROM leads WHERE id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id] }}"
+        }
+      },
+      "id": "d4000000-0011-4000-8000-000000000011",
+      "name": "Load Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        120,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const trig = $('Send Request').first().json;\nreturn { json: { ...$json, template_name: trig.template_name, requested_time_text: trig.requested_time_text, callback_time: trig.callback_time } };"
+      },
+      "id": "d4000000-0012-4000-8000-000000000012",
+      "name": "Merge Send Inputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d4000000-0013-4000-8000-000000000013",
+              "leftValue": "={{$json.do_not_contact}}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "d4000000-0014-4000-8000-000000000014",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -200
+      ],
+      "notes": "Blocks sending to any lead with do_not_contact = true, even if a caller forgets to check first."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const TEMPLATES = {\n  missed_call: (n, p) => `Hi ${n}, this is the ${p} team. We tried calling about your enquiry. Reply with a good time to call, or VISIT to book a site visit. Reply STOP to opt out.`,\n  brochure: (n, p) => `Thanks for speaking with us, ${n}! Here are the ${p} details: 2 & 3 BHK, clubhouse, pool. Would you like to visit this week?`,\n  visit_ack: (n, p, ctx) => `Thank you ${n}. We've noted your request for a visit on ${ctx.requested_time_text || 'the requested time'}. Our team will confirm shortly.`,\n  callback_ack: (n, p, ctx) => `Sure ${n}, we'll call you at ${ctx.callback_time || 'the requested time'}.`,\n  optout_ack: (n) => `Understood, ${n}. You won't receive further messages or calls from us.`\n};\nconst name = $json.name;\nconst property = $json.property_interest || 'Aranya Heights';\nconst fn = TEMPLATES[$json.template_name] || TEMPLATES.brochure;\nreturn { json: { ...$json, body: fn(name, property, $json) } };"
+      },
+      "id": "d4000000-0015-4000-8000-000000000015",
+      "name": "Render Template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (lead_id, channel, direction, template_name, body, status, simulated)\nVALUES ($1, 'whatsapp', 'out', $2, $3, 'sent', true);",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.template_name, $json.body] }}"
+        }
+      },
+      "id": "d4000000-0016-4000-8000-000000000016",
+      "name": "Write Outbox",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1000,
+        -300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. simulated = true always for this mock path."
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "d4000000-0017-4000-8000-000000000017",
+      "name": "Wait 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1220,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE messages SET status = 'delivered' WHERE lead_id = $1 AND template_name = $2 AND status = 'sent' AND created_at = (SELECT max(created_at) FROM messages WHERE lead_id = $1 AND template_name = $2);",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.template_name] }}"
+        }
+      },
+      "id": "d4000000-0018-4000-8000-000000000018",
+      "name": "Mark Delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        -300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. Simulates the sent -> delivered tick seen in the mock inbox."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-reply",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4000000-0020-4000-8000-000000000020",
+      "name": "Customer Reply",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        60
+      ],
+      "webhookId": "wf04-whatsapp-reply"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO messages (lead_id, channel, direction, body, status, simulated)\nVALUES ($1, 'whatsapp', 'in', $2, 'received', true)\nRETURNING lead_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.lead_id, $json.body.text] }}"
+        }
+      },
+      "id": "d4000000-0021-4000-8000-000000000021",
+      "name": "Save Inbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        120,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT value FROM app_config WHERE key = 'openai_model') AS openai_model;"
+      },
+      "id": "d4000000-0022-4000-8000-000000000022",
+      "name": "Load Model Name",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        340,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: $json.openai_model,\n  temperature: 0,\n  response_format: { type: 'json_object' },\n  messages: [\n    { role: 'system', content: 'Classify a customer WhatsApp reply to a real-estate follow-up. Return only JSON: {\"intent\": \"interested | callback | site_visit | office_visit | not_interested | opt_out | complaint | unknown\", \"callback_time\": ISO_or_null, \"requested_visit_time_text\": string_or_null, \"summary\": short_string}. \"STOP\", \"no more messages\", \"dont contact me\" (any language) = opt_out.' },\n    { role: 'user', content: $('Customer Reply').first().json.body.text }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "d4000000-0023-4000-8000-000000000023",
+      "name": "Classify Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        60
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "b763713c-92f4-4805-b42a-f076ab934e56",
+          "name": "Rudvaya OpenAI"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED (OpenAI)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ENUM_INTENT = ['interested','callback','site_visit','office_visit','not_interested','opt_out','complaint','unknown'];\nlet r, errors = [];\ntry {\n  const raw = $json.choices?.[0]?.message?.content;\n  r = JSON.parse(String(raw).replace(/```json|```/g, '').trim());\n} catch (e) {\n  return { json: { valid: false, errors: ['not_json'] } };\n}\nif (!ENUM_INTENT.includes(r.intent)) errors.push('intent');\nif (r.callback_time && isNaN(Date.parse(r.callback_time))) r.callback_time = null;\n\nconst leadId = $('Save Inbound').first().json.lead_id;\nreturn { json: { valid: errors.length === 0, errors, result: r, lead_id: leadId } };"
+      },
+      "id": "d4000000-0024-4000-8000-000000000024",
+      "name": "Validate Reply JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d4000000-0025-4000-8000-000000000025",
+              "leftValue": "={{$json.valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "d4000000-0026-4000-8000-000000000026",
+      "name": "Reply Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'review', updated_at = now() WHERE id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id] }}"
+        }
+      },
+      "id": "d4000000-0027-4000-8000-000000000027",
+      "name": "Mark Review (Invalid Reply)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1220,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, intent: 'review' } }}"
+      },
+      "id": "d4000000-0028-4000-8000-000000000028",
+      "name": "Respond Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "s1",
+                    "leftValue": "={{$json.result.intent}}",
+                    "rightValue": "opt_out",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "opt_out"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "s2",
+                    "leftValue": "={{$json.result.intent}}",
+                    "rightValue": "site_visit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or",
+                "conditions2": []
+              },
+              "outputKey": "visit"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "s3",
+                    "leftValue": "={{$json.result.intent}}",
+                    "rightValue": "office_visit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "visit"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "s4",
+                    "leftValue": "={{$json.result.intent}}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "callback"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "s5",
+                    "leftValue": "={{$json.result.intent}}",
+                    "rightValue": "complaint",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "complaint"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [
+                  {
+                    "id": "s6",
+                    "leftValue": "={{true}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputKey": "other"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "d4000000-0029-4000-8000-000000000029",
+      "name": "Route Reply",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1220,
+        60
+      ],
+      "notes": "TODO: the two 'site_visit'/'office_visit' rules both map to the same outputKey 'visit' per the Switch node's 'combine same outputKey' behaviour in rules mode — verify your n8n version merges them into one output branch; if not, add a 4th explicit output and wire both to 'B: Insert Appointment'."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET do_not_contact = true, status = 'opted_out', updated_at = now() WHERE id = $1;\nUPDATE followup_tasks SET status = 'cancelled', cancellation_reason = 'opt_out' WHERE lead_id = $1 AND status = 'pending';\nINSERT INTO audit_events (lead_id, actor, event_type, details) VALUES ($1, 'customer', 'opt_out_via_whatsapp', '{}'::jsonb);",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id] }}"
+        }
+      },
+      "id": "d4000000-0030-4000-8000-000000000030",
+      "name": "B: Opt-out (DNC)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowInputs": {
+          "value": {
+            "lead_id": "={{$json.lead_id}}",
+            "template_name": "optout_ack"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d4000000-0031-4000-8000-000000000031",
+      "name": "Send Ack (self): optout",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1660,
+        -200
+      ],
+      "notes": "REPLACE workflowId with THIS workflow's own id (self-call) after import."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO appointments (lead_id, type, requested_time_text, status) VALUES ($1, $2, $3, 'requested');",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id, $json.result.intent === 'office_visit' ? 'office_visit' : 'site_visit', $json.result.requested_visit_time_text] }}"
+        }
+      },
+      "id": "d4000000-0032-4000-8000-000000000032",
+      "name": "B: Insert Appointment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        -40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowInputs": {
+          "value": {
+            "lead_id": "={{$json.lead_id}}",
+            "template_name": "visit_ack",
+            "requested_time_text": "={{$json.result.requested_visit_time_text}}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d4000000-0033-4000-8000-000000000033",
+      "name": "Send Ack (self): visit",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1660,
+        -40
+      ],
+      "notes": "REPLACE workflowId with THIS workflow's own id (self-call) after import."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO followup_tasks (lead_id, task_type, due_at)\nVALUES ($1, 'callback', COALESCE($2::timestamptz, now() + interval '2 minutes'));",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id, $json.result.callback_time] }}"
+        }
+      },
+      "id": "d4000000-0034-4000-8000-000000000034",
+      "name": "B: Schedule Callback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        120
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+        "workflowInputs": {
+          "value": {
+            "lead_id": "={{$json.lead_id}}",
+            "template_name": "callback_ack",
+            "callback_time": "={{$json.result.callback_time}}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d4000000-0035-4000-8000-000000000035",
+      "name": "Send Ack (self): callback",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1660,
+        120
+      ],
+      "notes": "REPLACE workflowId with THIS workflow's own id (self-call) after import."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'escalated', updated_at = now() WHERE id = $1;\nINSERT INTO audit_events (lead_id, actor, event_type, details) VALUES ($1, 'customer', 'complaint_via_whatsapp', '{}'::jsonb);",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id] }}"
+        }
+      },
+      "id": "d4000000-0036-4000-8000-000000000036",
+      "name": "B: Complaint (no auto-reply)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        280
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. Human handles it — no template sent."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'interested', updated_at = now() WHERE id = $1 AND $2 = 'interested';",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id, $json.result.intent] }}"
+        }
+      },
+      "id": "d4000000-0037-4000-8000-000000000037",
+      "name": "B: Other Intent (interested/not_interested)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. 'not_interested' / 'unknown' fall through here without changing status beyond what's already true; extend with a CASE if you want 'not_interested' to also update status."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, intent: $json.result ? $json.result.intent : 'unknown' } }}"
+      },
+      "id": "d4000000-0038-4000-8000-000000000038",
+      "name": "Respond Reply OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1880,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4000000-0040-4000-8000-000000000040",
+      "name": "GET /whatsapp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        440
+      ],
+      "webhookId": "wf04-whatsapp-page"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "D:\\automation\\rudvaya-demo\\pages\\whatsapp.html",
+        "options": {}
+      },
+      "id": "d4000000-0041-4000-8000-000000000041",
+      "name": "Read WhatsApp Page",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        120,
+        440
+      ],
+      "notes": "REPLACE fileSelector with the absolute path to pages/whatsapp.html on your laptop."
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "d4000000-0042-4000-8000-000000000042",
+      "name": "Respond WhatsApp HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/messages",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4000000-0043-4000-8000-000000000043",
+      "name": "GET /api/messages",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        600
+      ],
+      "webhookId": "wf04-api-messages"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT m.id, m.lead_id, l.name AS lead_name, l.phone_e164, m.direction, m.template_name, m.body, m.status, m.simulated, m.created_at\nFROM messages m JOIN leads l ON l.id = m.lead_id\nORDER BY m.created_at DESC\nLIMIT 200;"
+      },
+      "id": "d4000000-0044-4000-8000-000000000044",
+      "name": "Query Messages",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        120,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
+      },
+      "id": "d4000000-0045-4000-8000-000000000045",
+      "name": "Wrap Messages Array",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "d4000000-0046-4000-8000-000000000046",
+      "name": "Respond Messages JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Send Request": {
+      "main": [
+        [
+          {
+            "node": "Load Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Lead": {
+      "main": [
+        [
+          {
+            "node": "Merge Send Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Send Inputs": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Render Template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Render Template": {
+      "main": [
+        [
+          {
+            "node": "Write Outbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Outbox": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s": {
+      "main": [
+        [
+          {
+            "node": "Mark Delivered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Reply": {
+      "main": [
+        [
+          {
+            "node": "Save Inbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Inbound": {
+      "main": [
+        [
+          {
+            "node": "Load Model Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Model Name": {
+      "main": [
+        [
+          {
+            "node": "Classify Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Reply": {
+      "main": [
+        [
+          {
+            "node": "Validate Reply JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Reply JSON": {
+      "main": [
+        [
+          {
+            "node": "Reply Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Valid?": {
+      "main": [
+        [
+          {
+            "node": "Route Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Review (Invalid Reply)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Review (Invalid Reply)": {
+      "main": [
+        [
+          {
+            "node": "Respond Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Reply": {
+      "main": [
+        [
+          {
+            "node": "B: Opt-out (DNC)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B: Insert Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B: Schedule Callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B: Complaint (no auto-reply)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B: Other Intent (interested/not_interested)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B: Opt-out (DNC)": {
+      "main": [
+        [
+          {
+            "node": "Send Ack (self): optout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Ack (self): optout": {
+      "main": [
+        [
+          {
+            "node": "Respond Reply OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B: Insert Appointment": {
+      "main": [
+        [
+          {
+            "node": "Send Ack (self): visit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Ack (self): visit": {
+      "main": [
+        [
+          {
+            "node": "Respond Reply OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B: Schedule Callback": {
+      "main": [
+        [
+          {
+            "node": "Send Ack (self): callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Ack (self): callback": {
+      "main": [
+        [
+          {
+            "node": "Respond Reply OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B: Complaint (no auto-reply)": {
+      "main": [
+        [
+          {
+            "node": "Respond Reply OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B: Other Intent (interested/not_interested)": {
+      "main": [
+        [
+          {
+            "node": "Respond Reply OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /whatsapp": {
+      "main": [
+        [
+          {
+            "node": "Read WhatsApp Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read WhatsApp Page": {
+      "main": [
+        [
+          {
+            "node": "Respond WhatsApp HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/messages": {
+      "main": [
+        [
+          {
+            "node": "Query Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Messages": {
+      "main": [
+        [
+          {
+            "node": "Wrap Messages Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wrap Messages Array": {
+      "main": [
+        [
+          {
+            "node": "Respond Messages JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "c2681169-68ac-4b8b-926b-1f802b3ee703",
+  "active": true
+}

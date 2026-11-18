@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rudvaya · AI Lead Desk (DEMO)</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --text: #15202b;
+    --muted: #5b6b79;
+    --border: #e2e8ee;
+    --accent: #0f766e;
+    --accent-ink: #ffffff;
+    --live: #16a34a;
+    --sim: #d97706;
+    --danger: #dc2626;
+    --chip-bg: #eef2f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1620;
+      --panel: #16202c;
+      --text: #e6edf3;
+      --muted: #93a3b1;
+      --border: #28333f;
+      --accent: #2dd4bf;
+      --accent-ink: #072320;
+      --live: #4ade80;
+      --sim: #fbbf24;
+      --danger: #f87171;
+      --chip-bg: #1f2a36;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap; gap: 10px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .badges { font-size: 13px; color: var(--muted); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  .dot.live { background: var(--live); }
+  .dot.sim { background: var(--sim); }
+  nav a { color: var(--accent); text-decoration: none; font-size: 13px; margin-left: 14px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 18px 16px 60px; }
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
+  .kpi .num { font-size: 22px; font-weight: 700; }
+  .kpi .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--chip-bg); font-size: 11px; }
+  .chip.opted_out, .chip.not_interested { color: var(--danger); }
+  .chip.interested, .chip.visit_requested { color: var(--live); }
+  .chip.review, .chip.escalated { color: var(--sim); }
+  button {
+    border: none; border-radius: 7px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.secondary { background: var(--chip-bg); color: var(--text); }
+  .feed-item { font-size: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; gap: 8px; }
+  .feed-item .badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; }
+  .badge.LIVE { background: rgba(22,163,74,.15); color: var(--live); }
+  .badge.SIMULATED { background: rgba(217,119,6,.15); color: var(--sim); }
+  .badge.SYSTEM { background: var(--chip-bg); color: var(--muted); }
+  .toast {
+    position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    max-width: 320px; display: none;
+  }
+  .confirm-btn { background: var(--live); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rudvaya · AI Lead Desk <span style="color:var(--muted); font-weight:400;">(DEMO)</span></h1>
+  <div class="badges">
+    <span><span class="dot live"></span>LIVE calls are real phone calls via Bolna</span>
+    <span><span class="dot sim"></span>SIMULATED events never leave this laptop</span>
+  </div>
+  <nav>
+    <a href="/webhook/whatsapp" target="_blank">Mock WhatsApp inbox</a>
+    <a href="#" id="upload-link" target="_blank">Upload leads CSV</a>
+  </nav>
+</header>
+<main>
+  <div class="kpi-row" id="kpi-row"></div>
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>Leads</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Last call</th><th>Next action</th><th></th></tr></thead>
+          <tbody id="leads-body"><tr><td colspan="6">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="panel">
+        <h2>Appointments</h2>
+        <div id="appointments-list">Loading…</div>
+      </div>
+      <div class="panel">
+        <h2>Live activity feed</h2>
+        <div id="activity-list">Loading…</div>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// Same-origin API calls — no CORS handling needed (plan §7, WF-06).
+const API = {
+  stats: '/webhook/api/stats',
+  leads: '/webhook/api/leads',
+  appointments: '/webhook/api/appointments',
+  activity: '/webhook/api/activity',
+  startCall: '/webhook/start-call',
+  confirm: '/webhook/api/appointment/confirm'
+};
+
+function maskPhone(p) {
+  if (!p) return '—';
+  const digits = String(p).replace(/\D/g, '');
+  const last2 = digits.slice(-2);
+  return '+91 ' + '•'.repeat(Math.max(digits.length - 2 - 2, 5)) + last2;
+}
+
+function toast(msg, ms = 4000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => (el.style.display = 'none'), ms);
+}
+
+async function callNow(leadId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Calling…';
+  try {
+    const res = await fetch(API.startCall, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_id: leadId, reason: 'manual' })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      toast('Blocked: ' + (data.blocked_reason || 'unknown reason'));
+    } else if (data.mode === 'simulated') {
+      toast('Simulated call started — opening browser simulator…');
+      window.open(data.simulator_url, '_blank');
+    } else {
+      toast('Live call dialing now — check the verified phone.');
+    }
+  } catch (e) {
+    toast('Request failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Call now';
+    refreshAll();
+  }
+}
+
+async function confirmAppointment(id, btn) {
+  btn.disabled = true;
+  try {
+    await fetch(API.confirm, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appointment_id: id, assigned_to: 'staff' })
+    });
+    toast('Appointment confirmed.');
+  } catch (e) {
+    toast('Confirm failed: ' + e.message);
+  } finally {
+    refreshAppointments();
+  }
+}
+
+async function refreshStats() {
+  try {
+    const res = await fetch(API.stats);
+    const s = await res.json();
+    const row = Array.isArray(s) ? s[0] : s;
+    const items = [
+      ['total_leads', 'Total leads'], ['duplicates', 'Duplicates'], ['calls_attempted', 'Calls'],
+      ['calls_answered', 'Answered'], ['interested', 'Interested'], ['pending_callbacks', 'Callbacks'],
+      ['site_visits', 'Site visits'], ['opted_out', 'Opt-outs']
+    ];
+    document.getElementById('kpi-row').innerHTML = items.map(([k, label]) =>
+      `<div class="kpi"><div class="num">${row?.[k] ?? 0}</div><div class="label">${label}</div></div>`
+    ).join('');
+  } catch (e) { /* Supabase project may be paused — see README troubleshooting */ }
+}
+
+async function refreshLeads() {
+  try {
+    const res = await fetch(API.leads);
+    const leads = await res.json();
+    document.getElementById('leads-body').innerHTML = (leads || []).map(l => `
+      <tr>
+        <td>${l.name}</td>
+        <td>${maskPhone(l.phone_e164)}</td>
+        <td><span class="chip ${l.status}">${l.status}</span></td>
+        <td>${l.last_call_at ? new Date(l.last_call_at).toLocaleTimeString() + ' · ' + (l.last_call_summary || l.last_call_status || '') : '—'}</td>
+        <td>${l.next_task_due_at ? 'Callback ' + new Date(l.next_task_due_at).toLocaleTimeString() : '—'}</td>
+        <td><button data-lead="${l.id}" ${l.do_not_contact ? 'disabled' : ''}>Call now</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="6">No leads yet — upload a CSV.</td></tr>';
+    document.querySelectorAll('#leads-body button[data-lead]').forEach(btn => {
+      btn.addEventListener('click', () => callNow(btn.getAttribute('data-lead'), btn));
+    });
+  } catch (e) { /* see README troubleshooting */ }
+}
+
+async function refreshAppointments() {
+  try {
+    const res = await fetch(API.appointments);
+    const items = await res.json();
+    document.getElementById('appointments-list').innerHTML = (items || []).map(a => `
+      <div class="feed-item">
+        <span>${a.type.replace('_', ' ')} · ${a.lead_name} · ${a.requested_time_text || '—'} · ${a.status}</span>
+        ${a.status === 'requested' ? `<button class="confirm-btn" data-appt="${a.id}">Confirm</button>` : ''}
+      </div>
+    `).join('') || 'No appointments yet.';
+    document.querySelectorAll('[data-appt]').forEach(btn => {
+      btn.addEventListener('click', () => confirmAppointment(btn.getAttribute('data-appt'), btn));
+    });
+  } catch (e) { /* see README troubleshooting */ }
+}
+
+async function refreshActivity() {
+  try {
+    const res = await fetch(API.activity);
+    const items = await res.json();
+    document.getElementById('activity-list').innerHTML = (items || []).map(a => `
+      <div class="feed-item">
+        <span>${a.kind} · ${a.lead_name || ''} · ${a.detail || ''}</span>
+        <span class="badge ${a.badge}">${a.badge}</span>
+      </div>
+    `).join('') || 'No activity yet.';
+  } catch (e) { /* see README troubleshooting */ }
+}
+
+function refreshAll() {
+  refreshStats(); refreshLeads(); refreshAppointments(); refreshActivity();
+}
+
+document.getElementById('upload-link').href = '/webhook/upload-form-link-todo';
+// TODO: replace the href above with WF-01's actual Form Trigger URL (shown on the
+// "Upload Leads CSV" node after you save WF-01), or point it at WF-06's
+// GET /upload redirect once you've filled in that node's REPLACE_WITH_WF01_FORM_ID.
+
+refreshAll();
+setInterval(refreshAll, 5000);
+</script>
+</body>
+</html>

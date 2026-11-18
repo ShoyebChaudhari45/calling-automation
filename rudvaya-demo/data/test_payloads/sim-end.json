@@ -1,0 +1,5 @@
+{
+  "_comment": "POST to http://localhost:5678/webhook/api/sim-end (WF-07). Replace attempt_id with the same id used in sim-turn.json.",
+  "attempt_id": "REPLACE_WITH_CALL_ATTEMPT_UUID",
+  "transcript": "Agent: Hello, this is Priya, an AI assistant calling from the Aranya Heights team about your recent enquiry. Is this a good time to talk for two minutes?\nCustomer: Yes, I'm interested in a 3 BHK, what's the price?\nAgent: The 3 BHK is approximately 1,350 sq ft, starting from Rs 82 lakh. Would you like to schedule a site visit?\nCustomer: Yes, can I come Saturday at 11am?\nAgent: Thank you, I've noted Saturday at 11am. Our team will confirm shortly on WhatsApp."
+}

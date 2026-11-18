@@ -1,0 +1,21 @@
+name,phone,email,source,property_interest,budget,location,consent,consent_source
+Aarav Kulkarni,+91 98765 43210,aarav@example.com,meta_ads,3BHK,80-90L,Gangapur Road,yes,Meta lead form
+Sneha Patil,9876543211,sneha@example.com,website,2BHK,55-60L,College Road,yes,Website form
+Rohan Deshmukh,09876543212,,csv,2BHK,50L,Indira Nagar,yes,Walk-in register
+Priya Joshi,+919876543213,priya@example.com,meta_ads,3BHK,85L,Gangapur Road,yes,Meta lead form
+Aarav Kulkarni,98765-43210,aarav@example.com,crm,3BHK,85L,Gangapur Road,yes,CRM export
+Kavita Pawar,98765 4321,,csv,2BHK,45L,Satpur,yes,Walk-in register
+Nikhil Shinde,+91 98765 43215,nikhil@example.com,website,3BHK,90L,Panchavati,no,
+Meera Iyer,919876543216,meera@example.com,meta_ads,2BHK,60L,Nashik Road,yes,Meta lead form
+Siddharth Rao,9876543217,,crm,3BHK,1Cr,Gangapur Road,yes,CRM export
+Anjali Wagh,9876543218,anjali@example.com,website,2BHK,58L,Mahatma Nagar,yes,Website form
+Farhan Shaikh,9876543219,,meta_ads,2BHK,52L,Dwarka,yes,Meta lead form
+Pooja Bhosale,+91 98765 43220,pooja@example.com,csv,3BHK,80L,College Road,yes,Expo register
+Vikram Jadhav,1234567890,,csv,2BHK,50L,Ambad,yes,Walk-in register
+Neha Gaikwad,9876543222,neha@example.com,website,3BHK,88L,Gangapur Road,yes,Website form
+Sanjay More,9876543223,,crm,2BHK,55L,Cidco,yes,CRM export
+Ritu Chavan,9876543224,ritu@example.com,meta_ads,2BHK,57L,Indira Nagar,yes,Meta lead form
+Sneha Patil,+91-9876543211,sneha@example.com,meta_ads,2BHK,60L,College Road,yes,Meta lead form
+Amit Sonawane,9876543226,,csv,3BHK,95L,Panchavati,yes,Expo register
+,9876543227,,csv,2BHK,50L,Satpur,yes,Walk-in register
+Deepa Kale,9876543228,deepa@example.com,website,2BHK,62L,Nashik Road,yes,Website form

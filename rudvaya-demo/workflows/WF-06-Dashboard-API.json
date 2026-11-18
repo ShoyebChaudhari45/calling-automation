@@ -1,0 +1,623 @@
+{
+  "name": "WF-06 · Dashboard & Data API",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WF-06 · Dashboard & Data API\n\n**Credentials needed:** every Postgres node below uses your Supabase Postgres credential.\n\n**File paths:** the 3 'Read ... Page' nodes read HTML from disk with n8n-nodes-base.readWriteFile. REPLACE the placeholder path `C:\\REPLACE\\rudvaya-demo\\pages\\dashboard.html` (and whatsapp.html / simulator.html in WF-04 / WF-07) with the real absolute path on your laptop, e.g. `D:\\automation\\rudvaya-demo\\pages\\dashboard.html`.\n\n**Must be Active** for the dashboard, mock inbox and CSV form links in the dashboard header to resolve, since production webhook URLs only work while the workflow is Active.",
+        "height": 280,
+        "width": 460
+      },
+      "id": "f0000000-0001-4000-8000-000000000001",
+      "name": "Sticky: Credentials & Paths",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "dashboard",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0010-4000-8000-000000000010",
+      "name": "GET /dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        -520
+      ],
+      "webhookId": "wf06-dashboard"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "D:\\automation\\rudvaya-demo\\pages\\dashboard.html",
+        "options": {}
+      },
+      "id": "f0000000-0011-4000-8000-000000000011",
+      "name": "Read Dashboard Page",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -520
+      ],
+      "notes": "REPLACE fileSelector with the absolute path to pages/dashboard.html on your laptop."
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f0000000-0012-4000-8000-000000000012",
+      "name": "Respond Dashboard HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        380,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/stats",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0020-4000-8000-000000000020",
+      "name": "GET /api/stats",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        -360
+      ],
+      "webhookId": "wf06-api-stats"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM v_dashboard;"
+      },
+      "id": "f0000000-0021-4000-8000-000000000021",
+      "name": "Query Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        -360
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-0022-4000-8000-000000000022",
+      "name": "Respond Stats JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        380,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0030-4000-8000-000000000030",
+      "name": "GET /api/leads",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        -200
+      ],
+      "webhookId": "wf06-api-leads"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT l.id, l.name, l.phone_e164, l.status, l.attempt_count, l.do_not_contact,\n       ca.started_at AS last_call_at, ca.status AS last_call_status, ca.summary AS last_call_summary, ca.mode AS last_call_mode,\n       ft.due_at AS next_task_due_at, ft.status AS next_task_status\nFROM leads l\nLEFT JOIN LATERAL (\n  SELECT * FROM call_attempts WHERE lead_id = l.id ORDER BY started_at DESC LIMIT 1\n) ca ON true\nLEFT JOIN LATERAL (\n  SELECT * FROM followup_tasks WHERE lead_id = l.id AND status = 'pending' ORDER BY due_at ASC LIMIT 1\n) ft ON true\nORDER BY l.created_at DESC\nLIMIT 200;"
+      },
+      "id": "f0000000-0031-4000-8000-000000000031",
+      "name": "Query Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        -200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. Phone masking happens client-side in dashboard.html, never in SQL, so the raw number is still usable by the Call now button."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
+      },
+      "id": "f0000000-0032-4000-8000-000000000032",
+      "name": "Wrap As Array",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-0033-4000-8000-000000000033",
+      "name": "Respond Leads JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/appointments",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0040-4000-8000-000000000040",
+      "name": "GET /api/appointments",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        -40
+      ],
+      "webhookId": "wf06-api-appointments"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.type, a.requested_time_text, a.scheduled_at, a.status, a.assigned_to, a.notes, a.simulated, a.created_at,\n       l.name AS lead_name, l.phone_e164\nFROM appointments a\nJOIN leads l ON l.id = a.lead_id\nORDER BY a.created_at DESC\nLIMIT 100;"
+      },
+      "id": "f0000000-0041-4000-8000-000000000041",
+      "name": "Query Appointments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        -40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
+      },
+      "id": "f0000000-0042-4000-8000-000000000042",
+      "name": "Wrap Appointments Array",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-0043-4000-8000-000000000043",
+      "name": "Respond Appointments JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/activity",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0050-4000-8000-000000000050",
+      "name": "GET /api/activity",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        140
+      ],
+      "webhookId": "wf06-api-activity"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT 'call' AS kind, ca.id, ca.lead_id, l.name AS lead_name, ca.status AS detail,\n       (CASE WHEN ca.mode = 'live_bolna' THEN 'LIVE' ELSE 'SIMULATED' END) AS badge, ca.started_at AS at\nFROM call_attempts ca JOIN leads l ON l.id = ca.lead_id\nUNION ALL\nSELECT 'message', m.id, m.lead_id, l.name, COALESCE(m.template_name, m.direction),\n       (CASE WHEN m.simulated THEN 'SIMULATED' ELSE 'LIVE' END), m.created_at\nFROM messages m JOIN leads l ON l.id = m.lead_id\nUNION ALL\nSELECT 'audit', ae.id, ae.lead_id, NULL, ae.event_type, 'SYSTEM', ae.created_at\nFROM audit_events ae\nORDER BY at DESC\nLIMIT 30;"
+      },
+      "id": "f0000000-0051-4000-8000-000000000051",
+      "name": "Query Activity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        140
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: $input.all().map(i => i.json) }];"
+      },
+      "id": "f0000000-0052-4000-8000-000000000052",
+      "name": "Wrap Activity Array",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-0053-4000-8000-000000000053",
+      "name": "Respond Activity JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/appointment/confirm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0060-4000-8000-000000000060",
+      "name": "POST /api/appointment/confirm",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        320
+      ],
+      "webhookId": "wf06-api-appointment-confirm"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE appointments SET status = 'confirmed', assigned_to = $2 WHERE id = $1 RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.appointment_id, $json.body.assigned_to || 'staff'] }}"
+        }
+      },
+      "id": "f0000000-0061-4000-8000-000000000061",
+      "name": "Confirm Appointment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. appointment_id comes from the POST JSON body."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { ok: true } }];"
+      },
+      "id": "f0000000-0062-4000-8000-000000000062",
+      "name": "Build Confirm Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-0063-4000-8000-000000000063",
+      "name": "Respond Confirm JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp-form",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0070-4000-8000-000000000070",
+      "name": "GET /upload (link helper)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        500
+      ],
+      "webhookId": "wf06-upload-redirect",
+      "notes": "Convenience redirect so the dashboard header's 'Upload CSV' link can point at a stable /webhook path that forwards to WF-01's Form Trigger URL. Optional — if unused, delete this branch and link directly to the WF-01 form URL."
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{$env.N8N_HOST ? $env.N8N_HOST : 'http://localhost:5678'}}/form/wf01-upload-leads"
+      },
+      "id": "f0000000-0071-4000-8000-000000000071",
+      "name": "Redirect To Upload Form",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        500
+      ],
+      "notes": "REPLACE the form id in the redirect URL with WF-01's actual Form Trigger webhook path, visible on the 'Upload Leads CSV' node once WF-01 is saved."
+    }
+  ],
+  "connections": {
+    "GET /dashboard": {
+      "main": [
+        [
+          {
+            "node": "Read Dashboard Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Dashboard Page": {
+      "main": [
+        [
+          {
+            "node": "Respond Dashboard HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/stats": {
+      "main": [
+        [
+          {
+            "node": "Query Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Stats": {
+      "main": [
+        [
+          {
+            "node": "Respond Stats JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/leads": {
+      "main": [
+        [
+          {
+            "node": "Query Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Leads": {
+      "main": [
+        [
+          {
+            "node": "Wrap As Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wrap As Array": {
+      "main": [
+        [
+          {
+            "node": "Respond Leads JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/appointments": {
+      "main": [
+        [
+          {
+            "node": "Query Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Appointments": {
+      "main": [
+        [
+          {
+            "node": "Wrap Appointments Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wrap Appointments Array": {
+      "main": [
+        [
+          {
+            "node": "Respond Appointments JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/activity": {
+      "main": [
+        [
+          {
+            "node": "Query Activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Activity": {
+      "main": [
+        [
+          {
+            "node": "Wrap Activity Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wrap Activity Array": {
+      "main": [
+        [
+          {
+            "node": "Respond Activity JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /api/appointment/confirm": {
+      "main": [
+        [
+          {
+            "node": "Confirm Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Appointment": {
+      "main": [
+        [
+          {
+            "node": "Build Confirm Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Confirm Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Confirm JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /upload (link helper)": {
+      "main": [
+        [
+          {
+            "node": "Redirect To Upload Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "7395158a-a23a-4606-9917-ab46341b3706",
+  "active": true
+}

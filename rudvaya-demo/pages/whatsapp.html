@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rudvaya · Mock WhatsApp Inbox</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --panel: #ffffff; --text: #15202b; --muted: #5b6b79;
+    --border: #e2e8ee; --accent: #0f766e; --accent-ink: #ffffff;
+    --bubble-out: #dcf8c6; --bubble-in: #ffffff; --warn-bg: #fff4e5; --warn-text: #92400e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1620; --panel: #16202c; --text: #e6edf3; --muted: #93a3b1;
+      --border: #28333f; --accent: #2dd4bf; --accent-ink: #072320;
+      --bubble-out: #1f3b2e; --bubble-in: #1f2a36; --warn-bg: #3a2a10; --warn-text: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  .banner {
+    background: var(--warn-bg); color: var(--warn-text); text-align: center; padding: 10px;
+    font-weight: 700; font-size: 13px; letter-spacing: .02em;
+  }
+  header { padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 17px; margin: 0; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: 280px 1fr; gap: 14px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
+  .conv-list { max-height: 70vh; overflow-y: auto; }
+  .conv-item { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+  .conv-item:hover, .conv-item.active { background: rgba(15,118,110,.08); }
+  .conv-item .name { font-weight: 600; }
+  .conv-item .preview { color: var(--muted); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat { display: flex; flex-direction: column; height: 70vh; }
+  .chat-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .chat-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .bubble { max-width: 75%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
+  .bubble.out { align-self: flex-end; background: var(--bubble-out); }
+  .bubble.in { align-self: flex-start; background: var(--bubble-in); border: 1px solid var(--border); }
+  .bubble .meta { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .reply-box { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+  .reply-box input { flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .reply-box button { border: none; border-radius: 8px; padding: 9px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="banner">SIMULATED — not sent via WhatsApp. This page is a mock inbox for the demo only.</div>
+<header><h1>Rudvaya · Mock WhatsApp Inbox</h1></header>
+<main>
+  <div class="panel conv-list" id="conv-list"><div class="empty">Loading…</div></div>
+  <div class="panel chat">
+    <div class="chat-header" id="chat-header">Select a conversation</div>
+    <div class="chat-body" id="chat-body"><div class="empty">No conversation selected.</div></div>
+    <div class="reply-box">
+      <input id="reply-text" type="text" placeholder="Type a customer reply, e.g. 'Can I visit Saturday?' or 'STOP'" />
+      <button id="reply-send">Send as customer</button>
+    </div>
+  </div>
+</main>
+<script>
+const API_MESSAGES = '/webhook/api/messages';
+const API_REPLY = '/webhook/whatsapp-reply';
+let allMessages = [];
+let activeLeadId = null;
+
+function groupByLead(messages) {
+  const map = new Map();
+  for (const m of messages) {
+    if (!map.has(m.lead_id)) map.set(m.lead_id, { lead_id: m.lead_id, name: m.lead_name, phone: m.phone_e164, items: [] });
+    map.get(m.lead_id).items.push(m);
+  }
+  for (const conv of map.values()) conv.items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return [...map.values()].sort((a, b) => {
+    const at = a.items[a.items.length - 1]?.created_at || 0;
+    const bt = b.items[b.items.length - 1]?.created_at || 0;
+    return new Date(bt) - new Date(at);
+  });
+}
+
+function maskPhone(p) {
+  if (!p) return '';
+  const digits = String(p).replace(/\D/g, '');
+  return '+91 ' + '•'.repeat(Math.max(digits.length - 4, 5)) + digits.slice(-2);
+}
+
+function renderConvList(convs) {
+  const el = document.getElementById('conv-list');
+  if (!convs.length) { el.innerHTML = '<div class="empty">No messages yet.</div>'; return; }
+  el.innerHTML = convs.map(c => {
+    const last = c.items[c.items.length - 1];
+    return `<div class="conv-item ${c.lead_id === activeLeadId ? 'active' : ''}" data-lead="${c.lead_id}">
+      <div class="name">${c.name} <span style="color:var(--muted); font-weight:400;">${maskPhone(c.phone)}</span></div>
+      <div class="preview">${last ? (last.body || last.template_name || '') : ''}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-lead]').forEach(d => d.addEventListener('click', () => selectLead(d.getAttribute('data-lead'))));
+}
+
+function renderChat(conv) {
+  document.getElementById('chat-header').textContent = conv ? `${conv.name} — ${maskPhone(conv.phone)} (SIMULATED thread)` : 'Select a conversation';
+  const body = document.getElementById('chat-body');
+  if (!conv) { body.innerHTML = '<div class="empty">No conversation selected.</div>'; return; }
+  body.innerHTML = conv.items.map(m => `
+    <div class="bubble ${m.direction === 'out' ? 'out' : 'in'}">
+      ${m.body || '(' + m.template_name + ')'}
+      <div class="meta">${new Date(m.created_at).toLocaleTimeString()} · ${m.status}${m.simulated ? ' · SIMULATED' : ''}</div>
+    </div>
+  `).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+function selectLead(leadId) {
+  activeLeadId = leadId;
+  const convs = groupByLead(allMessages);
+  renderConvList(convs);
+  renderChat(convs.find(c => c.lead_id === leadId));
+}
+
+async function refresh() {
+  try {
+    const res = await fetch(API_MESSAGES);
+    allMessages = await res.json();
+    const convs = groupByLead(allMessages);
+    renderConvList(convs);
+    if (activeLeadId) renderChat(convs.find(c => c.lead_id === activeLeadId));
+  } catch (e) { /* Supabase project may be paused — see README troubleshooting */ }
+}
+
+document.getElementById('reply-send').addEventListener('click', async () => {
+  const input = document.getElementById('reply-text');
+  const text = input.value.trim();
+  if (!text || !activeLeadId) return;
+  input.value = '';
+  await fetch(API_REPLY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lead_id: activeLeadId, text })
+  });
+  setTimeout(refresh, 800);
+});
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
