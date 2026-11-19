@@ -132,6 +132,34 @@
     </div>
     <div>
       <div class="panel">
+        <h2>Verified numbers (call allowlist)</h2>
+        <div id="allowlist-list" style="margin-bottom:10px;">Loading…</div>
+        <div style="display:flex; gap:6px; margin-bottom:6px;">
+          <input id="allowlist-input" type="text" placeholder="+91XXXXXXXXXX" style="flex:1; min-width:0; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
+          <button id="allowlist-add-btn">Add number</button>
+        </div>
+        <div class="sub" style="font-size:11px; color:var(--muted); line-height:1.4;">
+          Adding a number here only lets this system <em>attempt</em> to call it
+          (demo_mode safety check). It must <strong>also</strong> be verified in
+          Bolna's dashboard first, or the trial account will reject the call.
+          <a href="https://app.bolna.ai" target="_blank">Open Bolna dashboard →</a>
+          Profile menu (bottom-left) → Verified Numbers.
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Add a lead</h2>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <input id="newlead-name" type="text" placeholder="Name" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
+          <input id="newlead-phone" type="text" placeholder="+91XXXXXXXXXX" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
+          <button id="newlead-add-btn">Add lead</button>
+        </div>
+        <div class="sub" style="font-size:11px; color:var(--muted); margin-top:6px;">
+          Adds a lead with consent recorded as "dashboard_manual". Still
+          subject to the same eligibility gate — add its number to the
+          allowlist above too if you want to call it in demo mode.
+        </div>
+      </div>
+      <div class="panel">
         <h2>Appointments</h2>
         <div id="appointments-list">Loading…</div>
       </div>
@@ -155,7 +183,10 @@ const API = {
   appointments: '/webhook/api/appointments',
   activity: '/webhook/api/activity',
   startCall: '/webhook/start-call',
-  confirm: '/webhook/api/appointment/confirm'
+  confirm: '/webhook/api/appointment/confirm',
+  allowlist: '/webhook/api/allowlist',
+  allowlistAdd: '/webhook/api/allowlist/add',
+  leadAdd: '/webhook/api/lead/add'
 };
 
 function maskPhone(p) {
@@ -321,8 +352,79 @@ async function refreshActivity() {
   } catch (e) { /* see README troubleshooting */ }
 }
 
+async function refreshAllowlist() {
+  try {
+    const res = await fetch(API.allowlist);
+    const numbers = await res.json();
+    document.getElementById('allowlist-list').innerHTML = (numbers && numbers.length)
+      ? numbers.map(n => `<span class="chip" style="margin:0 6px 6px 0; display:inline-block;">${escapeHtml(n)}</span>`).join('')
+      : '<span class="sub">No numbers yet — add one below.</span>';
+  } catch (e) { /* see README troubleshooting */ }
+}
+
+async function addAllowlistNumber() {
+  const input = document.getElementById('allowlist-input');
+  const phone = input.value.trim();
+  if (!phone) return;
+  const btn = document.getElementById('allowlist-add-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(API.allowlistAdd, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      input.value = '';
+      toast('Added to allowlist. Remember to also verify it in Bolna’s dashboard.');
+      refreshAllowlist();
+    } else {
+      toast('Could not add: ' + (data.reason || 'invalid number'));
+    }
+  } catch (e) {
+    toast('Request failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function addNewLead() {
+  const nameInput = document.getElementById('newlead-name');
+  const phoneInput = document.getElementById('newlead-phone');
+  const name = nameInput.value.trim();
+  const phone = phoneInput.value.trim();
+  if (!name || !phone) { toast('Enter both a name and a phone number.'); return; }
+  const btn = document.getElementById('newlead-add-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(API.leadAdd, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      nameInput.value = ''; phoneInput.value = '';
+      toast('Lead added: ' + data.lead.name);
+      refreshLeads();
+    } else {
+      toast('Could not add lead: ' + (data.reason || 'invalid input'));
+    }
+  } catch (e) {
+    toast('Request failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('allowlist-add-btn').addEventListener('click', addAllowlistNumber);
+document.getElementById('allowlist-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addAllowlistNumber(); });
+document.getElementById('newlead-add-btn').addEventListener('click', addNewLead);
+document.getElementById('newlead-phone').addEventListener('keydown', (e) => { if (e.key === 'Enter') addNewLead(); });
+
 function refreshAll() {
-  refreshStats(); refreshLeads(); refreshAppointments(); refreshActivity();
+  refreshStats(); refreshLeads(); refreshAppointments(); refreshActivity(); refreshAllowlist();
 }
 
 document.getElementById('upload-link').href = '/form/wf01-upload-leads';

@@ -384,6 +384,331 @@
         500
       ],
       "notes": "REPLACE the form id in the redirect URL with WF-01's actual Form Trigger webhook path, visible on the 'Upload Leads CSV' node once WF-01 is saved."
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/allowlist",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0080-4000-8000-000000000080",
+      "name": "GET /api/allowlist",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        680
+      ],
+      "webhookId": "wf06-api-allowlist"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT value FROM app_config WHERE key = 'call_allowlist';"
+      },
+      "id": "f0000000-0081-4000-8000-000000000081",
+      "name": "Query Allowlist",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        680
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $input.first().json.value || '';\nconst numbers = raw.split(',').map(s => s.trim()).filter(Boolean);\nreturn [{ json: { numbers } }];"
+      },
+      "id": "f0000000-0082-4000-8000-000000000082",
+      "name": "Parse Allowlist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.numbers }}",
+        "options": {}
+      },
+      "id": "f0000000-0083-4000-8000-000000000083",
+      "name": "Respond Allowlist JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/allowlist/add",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-0090-4000-8000-000000000090",
+      "name": "POST /api/allowlist/add",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        860
+      ],
+      "webhookId": "wf06-api-allowlist-add"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = ($json.body && $json.body.phone) || '';\nlet digits = String(raw).replace(/[^\\d+]/g, '');\nlet phone = null;\nif (/^\\+91[6-9]\\d{9}$/.test(digits)) phone = digits;\nelse if (/^91[6-9]\\d{9}$/.test(digits)) phone = '+' + digits;\nelse if (/^0?[6-9]\\d{9}$/.test(digits)) phone = '+91' + digits.slice(-10);\nreturn [{ json: { phone_e164: phone, valid: !!phone } }];"
+      },
+      "id": "f0000000-0091-4000-8000-000000000091",
+      "name": "Normalize New Number",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "allow1",
+              "leftValue": "={{$json.valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "f0000000-0092-4000-8000-000000000092",
+      "name": "Valid Number?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        380,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE app_config\nSET value = CASE\n  WHEN value = '' THEN $1\n  WHEN (',' || value || ',') LIKE ('%,' || $1 || ',%') THEN value\n  ELSE value || ',' || $1\nEND\nWHERE key = 'call_allowlist'\nRETURNING value;",
+        "options": {
+          "queryReplacement": "={{ [$json.phone_e164] }}"
+        }
+      },
+      "id": "f0000000-0093-4000-8000-000000000093",
+      "name": "Update Allowlist",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        600,
+        780
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. This only controls which numbers demo_mode will allow Bolna to call -- it does NOT verify the number with Bolna. The number must ALSO be verified in the Bolna dashboard (profile menu -> Verified Numbers) before a live call will actually connect."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const value = $input.first().json.value || '';\nreturn [{ json: { ok: true, numbers: value.split(',').map(s => s.trim()).filter(Boolean) } }];"
+      },
+      "id": "f0000000-0094-4000-8000-000000000094",
+      "name": "Build Allowlist Add Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-0095-4000-8000-000000000095",
+      "name": "Respond Allowlist Add OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, reason: 'invalid_phone' } }}"
+      },
+      "id": "f0000000-0096-4000-8000-000000000096",
+      "name": "Respond Allowlist Add Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/lead/add",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f0000000-00a0-4000-8000-0000000000a0",
+      "name": "POST /api/lead/add",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        1040
+      ],
+      "webhookId": "wf06-api-lead-add"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const b = $json.body || {};\nconst name = (b.name || '').trim();\nlet digits = String(b.phone || '').replace(/[^\\d+]/g, '');\nlet phone = null;\nif (/^\\+91[6-9]\\d{9}$/.test(digits)) phone = digits;\nelse if (/^91[6-9]\\d{9}$/.test(digits)) phone = '+' + digits;\nelse if (/^0?[6-9]\\d{9}$/.test(digits)) phone = '+91' + digits.slice(-10);\nlet reason = null;\nif (!name) reason = 'missing_name';\nelse if (!phone) reason = 'invalid_phone';\nreturn [{ json: { valid: !reason, reason, name, phone_e164: phone } }];"
+      },
+      "id": "f0000000-00a1-4000-8000-0000000000a1",
+      "name": "Normalize New Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "lead1",
+              "leftValue": "={{$json.valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "f0000000-00a2-4000-8000-0000000000a2",
+      "name": "Valid Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        380,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO leads (client_id, name, phone_e164, source, consent, consent_source, consent_at)\nVALUES ('demo', $1, $2, 'dashboard', true, 'dashboard_manual', now())\nON CONFLICT (client_id, phone_e164) DO UPDATE SET name = EXCLUDED.name, updated_at = now()\nRETURNING id, name, phone_e164, status;",
+        "options": {
+          "queryReplacement": "={{ [$json.name, $json.phone_e164] }}"
+        }
+      },
+      "id": "f0000000-00a3-4000-8000-0000000000a3",
+      "name": "Upsert New Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        600,
+        960
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. Adding a lead here does NOT add it to call_allowlist and does NOT verify it with Bolna -- do that separately via the Verified Numbers panel and the Bolna dashboard, or the eligibility gate in WF-02 will block the call."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { ok: true, lead: $input.first().json } }];"
+      },
+      "id": "f0000000-00a4-4000-8000-0000000000a4",
+      "name": "Build Lead Add Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "id": "f0000000-00a5-4000-8000-0000000000a5",
+      "name": "Respond Lead Add OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, reason: $json.reason } }}"
+      },
+      "id": "f0000000-00a6-4000-8000-0000000000a6",
+      "name": "Respond Lead Add Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        1120
+      ]
     }
   ],
   "connections": {
@@ -535,6 +860,163 @@
         [
           {
             "node": "Respond Activity JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/allowlist": {
+      "main": [
+        [
+          {
+            "node": "Query Allowlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Allowlist": {
+      "main": [
+        [
+          {
+            "node": "Parse Allowlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Allowlist": {
+      "main": [
+        [
+          {
+            "node": "Respond Allowlist JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /api/allowlist/add": {
+      "main": [
+        [
+          {
+            "node": "Normalize New Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize New Number": {
+      "main": [
+        [
+          {
+            "node": "Valid Number?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Number?": {
+      "main": [
+        [
+          {
+            "node": "Update Allowlist",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Allowlist Add Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Allowlist": {
+      "main": [
+        [
+          {
+            "node": "Build Allowlist Add Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Allowlist Add Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Allowlist Add OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /api/lead/add": {
+      "main": [
+        [
+          {
+            "node": "Normalize New Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize New Lead": {
+      "main": [
+        [
+          {
+            "node": "Valid Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Lead?": {
+      "main": [
+        [
+          {
+            "node": "Upsert New Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Lead Add Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert New Lead": {
+      "main": [
+        [
+          {
+            "node": "Build Lead Add Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Lead Add Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Lead Add OK",
             "type": "main",
             "index": 0
           }
