@@ -151,12 +151,18 @@
         <div style="display:flex; flex-direction:column; gap:6px;">
           <input id="newlead-name" type="text" placeholder="Name" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
           <input id="newlead-phone" type="text" placeholder="+91XXXXXXXXXX" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
+          <input id="newlead-interest" type="text" placeholder="Property interest (e.g. 3BHK) — optional AI context" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
+          <input id="newlead-budget" type="text" placeholder="Budget (e.g. 80-90L) — optional AI context" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
+          <input id="newlead-location" type="text" placeholder="Location preference — optional AI context" style="padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" />
           <button id="newlead-add-btn">Add lead</button>
         </div>
         <div class="sub" style="font-size:11px; color:var(--muted); margin-top:6px;">
-          Adds a lead with consent recorded as "dashboard_manual". Still
-          subject to the same eligibility gate — add its number to the
-          allowlist above too if you want to call it in demo mode.
+          Adds a lead with consent recorded as "dashboard_manual". The
+          interest/budget/location fields are passed to the AI agent as
+          call context — it'll acknowledge what's already known instead of
+          re-asking. Still subject to the same eligibility gate — add its
+          number to the allowlist above too if you want to call it in demo
+          mode.
         </div>
       </div>
       <div class="panel">
@@ -166,6 +172,27 @@
       <div class="panel">
         <h2>Live activity feed</h2>
         <div id="activity-list">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>System — workflows &amp; AI agent</h2>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:10px; font-size:12px;">
+      <div>
+        <div style="color:var(--muted); font-weight:600; margin-bottom:6px; text-transform:uppercase; font-size:11px; letter-spacing:.04em;">n8n workflows (click to open in editor)</div>
+        <div id="workflow-list"></div>
+      </div>
+      <div>
+        <div style="color:var(--muted); font-weight:600; margin-bottom:6px; text-transform:uppercase; font-size:11px; letter-spacing:.04em;">AI agent</div>
+        <div style="line-height:1.7;">
+          <div><strong>Voice agent:</strong> Aranya Heights Assistant (Bolna)</div>
+          <div><strong>Agent ID:</strong> <code id="agent-id-display" style="font-size:11px;">88f5b475-c685-4802-b5c1-cce673b77661</code></div>
+          <div><strong>LLM:</strong> gpt-5.4-mini (OpenAI) — same model used for post-call transcript classification</div>
+          <div><strong>Voice:</strong> ElevenLabs · <strong>Speech-to-text:</strong> Deepgram nova-3</div>
+          <div style="margin-top:6px;"><a href="https://app.bolna.ai" target="_blank">Open Bolna agent dashboard →</a></div>
+          <div style="margin-top:6px; color:var(--muted);">Edit the agent's conversation script in Bolna's dashboard (Agent tab), or the "VERIFIED FACTS" it's allowed to state in the <code>properties</code> table (Supabase).</div>
+        </div>
       </div>
     </div>
   </div>
@@ -273,7 +300,7 @@ async function refreshLeads() {
     document.getElementById('leads-body').innerHTML = leadsCache.map(l => `
       <tr class="lead-row" data-lead-row="${l.id}">
         <td>${l.name}</td>
-        <td>${maskPhone(l.phone_e164)}</td>
+        <td>${l.phone_e164}</td>
         <td><span class="chip ${l.status}">${l.status}</span></td>
         <td>${l.last_call_at ? new Date(l.last_call_at).toLocaleTimeString() + ' · ' + (l.last_call_summary || l.last_call_status || '') : '—'}</td>
         <td>${l.next_task_due_at ? 'Callback ' + new Date(l.next_task_due_at).toLocaleTimeString() : '—'}</td>
@@ -301,7 +328,7 @@ function openLeadDetail(leadId) {
   document.getElementById('modal-content').innerHTML = `
     <button class="close-btn secondary" id="modal-close">Close</button>
     <h3>${escapeHtml(l.name)}</h3>
-    <div class="sub">${maskPhone(l.phone_e164)} · status: <span class="chip ${l.status}">${l.status}</span>${l.last_call_mode ? ' · <span class="badge ' + (l.last_call_mode === 'live_bolna' ? 'LIVE' : 'SIMULATED') + '">' + (l.last_call_mode === 'live_bolna' ? 'LIVE' : 'SIMULATED') + '</span>' : ''}</div>
+    <div class="sub">${l.phone_e164} · status: <span class="chip ${l.status}">${l.status}</span>${l.last_call_mode ? ' · <span class="badge ' + (l.last_call_mode === 'live_bolna' ? 'LIVE' : 'SIMULATED') + '">' + (l.last_call_mode === 'live_bolna' ? 'LIVE' : 'SIMULATED') + '</span>' : ''}</div>
     ${hasCall ? `
       <div class="section-label">Last call</div>
       <div>${new Date(l.last_call_at).toLocaleString()} · ${l.last_call_status || ''}${l.last_call_duration_seconds ? ' · ' + Math.round(l.last_call_duration_seconds) + 's' : ''}</div>
@@ -392,6 +419,9 @@ async function addAllowlistNumber() {
 async function addNewLead() {
   const nameInput = document.getElementById('newlead-name');
   const phoneInput = document.getElementById('newlead-phone');
+  const interestInput = document.getElementById('newlead-interest');
+  const budgetInput = document.getElementById('newlead-budget');
+  const locationInput = document.getElementById('newlead-location');
   const name = nameInput.value.trim();
   const phone = phoneInput.value.trim();
   if (!name || !phone) { toast('Enter both a name and a phone number.'); return; }
@@ -401,11 +431,16 @@ async function addNewLead() {
     const res = await fetch(API.leadAdd, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, phone })
+      body: JSON.stringify({
+        name, phone,
+        property_interest: interestInput.value.trim() || null,
+        budget: budgetInput.value.trim() || null,
+        location: locationInput.value.trim() || null
+      })
     });
     const data = await res.json();
     if (data.ok) {
-      nameInput.value = ''; phoneInput.value = '';
+      nameInput.value = ''; phoneInput.value = ''; interestInput.value = ''; budgetInput.value = ''; locationInput.value = '';
       toast('Lead added: ' + data.lead.name);
       refreshLeads();
     } else {
@@ -428,6 +463,23 @@ function refreshAll() {
 }
 
 document.getElementById('upload-link').href = '/form/wf01-upload-leads';
+
+const WORKFLOWS = [
+  { id: 'd97efc06-e6f9-401b-bedb-c13cbc102d20', name: 'WF-01 · Lead Intake, Validation & Deduplication', desc: 'Cleans every CSV upload: normalizes phone numbers, catches duplicates, rejects missing consent.' },
+  { id: '7f304555-2a66-4260-9663-de1749451a7f', name: 'WF-02 · Contact Eligibility & Call Dispatch', desc: 'The compliance gate — 6 checks before any call, then dispatches to Bolna.' },
+  { id: '0617eb09-218f-44b6-8fe8-86177ae36393', name: 'WF-03 · Call Result Polling & AI Classification', desc: 'Polls Bolna for the finished call, classifies the transcript with AI, validates it, routes the outcome.' },
+  { id: 'c2681169-68ac-4b8b-926b-1f802b3ee703', name: 'WF-04 · WhatsApp Follow-up (Mock) & Inbound Replies', desc: 'Mock WhatsApp send/receive — same decision logic a real Meta API integration would use.' },
+  { id: '57210152-601f-48ee-bf26-e8f1995de5f5', name: 'WF-05 · Callback Scheduler', desc: 'Runs every minute, safely claims due callbacks, re-checks eligibility, redials via WF-02.' },
+  { id: '7395158a-a23a-4606-9917-ab46341b3706', name: 'WF-06 · Dashboard & Data API', desc: 'Serves this page and every API call it makes — no separate reporting layer.' },
+  { id: '3e5536cf-afc1-4f9c-bef7-0d75c27504f0', name: 'WF-07 · Browser Call Simulator (fallback)', desc: 'Browser mic/text fallback using the exact same AI prompt and classification path as a real call.' },
+];
+
+document.getElementById('workflow-list').innerHTML = WORKFLOWS.map(w => `
+  <div style="padding:7px 0; border-bottom:1px solid var(--border);">
+    <a href="http://localhost:5678/workflow/${w.id}" target="_blank" style="font-weight:600;">${w.name}</a>
+    <div style="color:var(--muted); font-size:11px; margin-top:2px;">${w.desc}</div>
+  </div>
+`).join('');
 
 refreshAll();
 setInterval(refreshAll, 5000);

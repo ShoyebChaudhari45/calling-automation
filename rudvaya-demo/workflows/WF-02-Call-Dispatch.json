@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## WF-02 · Call Dispatch\n\n**Credentials needed:**\n- Load Lead + Config, Create Call Attempt, Blocked Audit, Save Execution ID (all Postgres)\n- Bolna: Make Call (Bolna API credential)\n\n**REPLACE after import:**\n- 'Start Result Poller' node: workflowId must point at this file's imported WF-03 workflow (its ID only exists after you import WF-03; copy it from the URL bar and paste into the node, or pick it from the dropdown).\n\n**VERIFIED (checked against the installed n8n-nodes-bolna v0.1.2 source on this machine):** the 'Bolna: Make Call' node's parameters below (resource=call, operation=makeCall, agentId, recipientPhoneNumber, additionalFields.userData) match the real node exactly — it POSTs to /call with body {agent_id, recipient_phone_number, user_data}. TODO still open: the exact response field name holding the new execution id (commonly 'id' or 'execution_id' in Bolna's API) — 'Save Execution ID' below checks both; confirm which one is populated from a real test call and simplify if you like.",
+        "content": "## WF-02 · Call Dispatch\n\n**Credentials needed:**\n- Load Lead + Config, Create Call Attempt, Blocked Audit, Save Execution ID (all Postgres)\n- Bolna: Make Call (Bolna API credential)\n\n**REPLACE after import:**\n- 'Start Result Poller' node: workflowId must point at this file's imported WF-03 workflow (its ID only exists after you import WF-03; copy it from the URL bar and paste into the node, or pick it from the dropdown).\n\n**VERIFIED (checked against the installed n8n-nodes-bolna v0.1.2 source on this machine):** the 'Bolna: Make Call' node's parameters below (resource=call, operation=makeCall, agentId, recipientPhoneNumber, additionalFields.userData) match the real node exactly — it POSTs to /call with body {agent_id, recipient_phone_number, user_data}, and the response field is confirmed as 'execution_id'.\n\n**FIXED bug found in live testing:** 'Start Result Poller' was reading `$json.execution_id`, which is the *immediately preceding* node's output ('Save Execution ID', a Postgres UPDATE with no RETURNING clause — always empty). Every real call was silently polling Bolna for execution id `undefined`, so WF-03 always failed with \"Invalid Execution ID\" and the call_attempts row stayed stuck on status 'queued' forever, even though the actual phone call succeeded. Fixed by referencing `$('Bolna: Make Call').first().json.execution_id` directly.",
         "height": 300,
         "width": 480
       },
@@ -278,7 +278,7 @@
         "agentId": "={{$json.bolna_agent_id}}",
         "recipientPhoneNumber": "={{$json.phone_e164}}",
         "additionalFields": {
-          "userData": "={{ JSON.stringify({ lead_name: $json.name, property_name: $json.property ? $json.property.name : '', property_facts: $json.property_facts }) }}"
+          "userData": "={{ JSON.stringify({ lead_name: $json.name, property_name: $json.property ? $json.property.name : '', property_facts: $json.property_facts, lead_property_interest: $json.property_interest || 'not provided', lead_budget: $json.budget || 'not provided', lead_location: $json.location || 'not provided' }) }}"
         }
       },
       "id": "b2000000-0016-4000-8000-000000000016",
@@ -332,7 +332,7 @@
         "workflowInputs": {
           "value": {
             "call_attempt_id": "={{$('Merge Attempt Result').first().json.call_attempt_id}}",
-            "execution_id": "={{$json.execution_id}}",
+            "execution_id": "={{$('Bolna: Make Call').first().json.execution_id}}",
             "lead_id": "={{$('Merge Attempt Result').first().json.id}}",
             "mode": "live_bolna"
           }

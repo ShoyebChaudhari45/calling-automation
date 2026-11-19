@@ -601,7 +601,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const b = $json.body || {};\nconst name = (b.name || '').trim();\nlet digits = String(b.phone || '').replace(/[^\\d+]/g, '');\nlet phone = null;\nif (/^\\+91[6-9]\\d{9}$/.test(digits)) phone = digits;\nelse if (/^91[6-9]\\d{9}$/.test(digits)) phone = '+' + digits;\nelse if (/^0?[6-9]\\d{9}$/.test(digits)) phone = '+91' + digits.slice(-10);\nlet reason = null;\nif (!name) reason = 'missing_name';\nelse if (!phone) reason = 'invalid_phone';\nreturn [{ json: { valid: !reason, reason, name, phone_e164: phone } }];"
+        "jsCode": "const b = $json.body || {};\nconst name = (b.name || '').trim();\nlet digits = String(b.phone || '').replace(/[^\\d+]/g, '');\nlet phone = null;\nif (/^\\+91[6-9]\\d{9}$/.test(digits)) phone = digits;\nelse if (/^91[6-9]\\d{9}$/.test(digits)) phone = '+' + digits;\nelse if (/^0?[6-9]\\d{9}$/.test(digits)) phone = '+91' + digits.slice(-10);\nlet reason = null;\nif (!name) reason = 'missing_name';\nelse if (!phone) reason = 'invalid_phone';\nreturn [{ json: { valid: !reason, reason, name, phone_e164: phone, property_interest: b.property_interest || null, budget: b.budget || null, location: b.location || null } }];"
       },
       "id": "f0000000-00a1-4000-8000-0000000000a1",
       "name": "Normalize New Lead",
@@ -647,9 +647,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO leads (client_id, name, phone_e164, source, consent, consent_source, consent_at)\nVALUES ('demo', $1, $2, 'dashboard', true, 'dashboard_manual', now())\nON CONFLICT (client_id, phone_e164) DO UPDATE SET name = EXCLUDED.name, updated_at = now()\nRETURNING id, name, phone_e164, status;",
+        "query": "INSERT INTO leads (client_id, name, phone_e164, source, property_interest, budget, location, consent, consent_source, consent_at)\nVALUES ('demo', $1, $2, 'dashboard', $3, $4, $5, true, 'dashboard_manual', now())\nON CONFLICT (client_id, phone_e164) DO UPDATE SET name = EXCLUDED.name,\n  property_interest = COALESCE(EXCLUDED.property_interest, leads.property_interest),\n  budget = COALESCE(EXCLUDED.budget, leads.budget),\n  location = COALESCE(EXCLUDED.location, leads.location),\n  updated_at = now()\nRETURNING id, name, phone_e164, status, property_interest, budget, location;",
         "options": {
-          "queryReplacement": "={{ [$json.name, $json.phone_e164] }}"
+          "queryReplacement": "={{ [$json.name, $json.phone_e164, $json.property_interest, $json.budget, $json.location] }}"
         }
       },
       "id": "f0000000-00a3-4000-8000-0000000000a3",
