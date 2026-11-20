@@ -17,6 +17,16 @@ in order; if you're picking this repo up as-is on **this** machine, skip to
 section 6 ("Everyday use") and section "Where to find recordings,
 transcripts and dashboard data".
 
+**New-machine shortcut:** the Supabase project, Bolna agent and OpenAI
+project (§2–4) are external and already exist. On a new Windows machine you
+only need Node 22 LTS + `npm install n8n@2.22.6 -g` (§1), then run
+`powershell -ExecutionPolicy Bypass -File setup-n8n.ps1` with n8n stopped.
+It installs the Bolna community node, creates the three n8n credentials with
+the IDs the workflows expect (secrets left blank — paste the Supabase DB
+password, OpenAI key and Bolna key into them in the n8n UI), points the
+three page-serving nodes at this folder, and imports + publishes all seven
+workflows. Then start n8n with `start-n8n.bat`.
+
 Several node parameters that are easy to get wrong were corrected against
 the real installed package source and live API responses rather than
 guessed — see "Resolved since initial build" further down for the exact
@@ -43,6 +53,8 @@ rudvaya-demo/
   data/test_payloads/*.json   -- example bodies for every POST webhook
   TESTS.md                    -- the 15 tests from the plan, PASS/FAIL table
   RUNBOOK.md                  -- 5-minute and 15-minute demo scripts
+  setup-n8n.ps1               -- one-time n8n setup on a new machine (see above)
+  start-n8n.bat / .ps1        -- everyday start (sets env vars, opens dashboard)
 ```
 
 ---
@@ -50,8 +62,8 @@ rudvaya-demo/
 ## 1. Install Node.js and n8n
 
 ```powershell
-node -v                         # confirm Node.js LTS is installed; if missing, get it from nodejs.org
-npm install n8n -g              # installs n8n globally (a few minutes)
+node -v                         # must be >= 22.16 (n8n 2.22.x requirement); get Node 22 LTS from nodejs.org
+npm install n8n@2.22.6 -g       # the version these workflows were tested on (a few minutes)
 $env:GENERIC_TIMEZONE = "Asia/Kolkata"
 n8n start
 ```
@@ -304,6 +316,8 @@ survive a reset.
 | Bolna call never completes / WF-03 loops forever | Check the `Get Execution` node's URL/auth against Bolna's current API reference (marked TODO in WF-03) — the path or status strings this build guessed may not match. Inspect one real response in the n8n execution log and adjust `Check Finished`'s field names. |
 | OpenAI node/HTTP Request returns 401/429 | Credential not selected, or the OpenAI project has no billing/credit — add a small prepaid top-up. |
 | Classification always goes to "review" | Open the `Classify Call` or `Classify Reply` execution in n8n and inspect the raw OpenAI response — the parsing code expects `choices[0].message.content` to be a JSON object; a non-JSON model response (wrong model name, or `response_format` unsupported by that model) will fail validation by design. |
+| Dashboard data blank, calls stuck on "contacting", n8n error `ECIRCUITBREAKER too many authentication failures` | Some other client is logging into Supabase with an old/wrong DB password (typically n8n left running on another laptop, whose WF-05 retries every minute). Supabase's pooler then blocks **everyone** for a few minutes. Close that client or update its password; the block clears by itself. |
+| Every answered call ends in `review` | Look at the newest `audit_events` row with `event_type = 'invalid_ai_output'` — WF-03 stores OpenAI's exact error there. `You have no credits remaining` means the OpenAI account needs a prepaid top-up (platform.openai.com → Settings → Billing). The transcript/recording are still saved either way. |
 | Microphone doesn't work in the simulator | Chrome blocks mic access on non-HTTPS origins except `localhost` — make sure you're opening `http://localhost:5678/...`, not a LAN IP. Text input always works as a fallback. |
 
 ---
@@ -411,6 +425,22 @@ or a real API response rather than guessing twice):
   judgement end the call instead of relying only on the silence/duration
   timeouts) — both confirmed as real fields from the agent's own `GET`
   response before being set.
+
+**Fixed on 2026-11-20** (second machine, live calls):
+
+- **WF-02 "Respond Blocked"** read `block_reason` from the audit INSERT's
+  output (always empty), so the dashboard always said "Blocked: unknown
+  reason". It now reads `$('Eligibility Gate')`.
+- **WF-03 poll counter** was always 1 (it re-read Init Poll State every
+  loop), so the 10-minute timeout never fired. It now uses `$runIndex`.
+- **WF-03 saves the call the moment it ends**: new node "Save Call Data
+  (instant)" writes status/transcript/recording/duration and sets the lead
+  to `contacted` *before* AI classification, so the dashboard updates within
+  ~5–10 s of hang-up and the transcript survives an OpenAI failure. Polling
+  is now every 5 s (max 120 polls = 10 min).
+- **OpenAI failures route to `review`** (as this README always claimed)
+  instead of aborting WF-03 silently: "Classify Call" continues on error
+  (2 tries), and the error text is stored in `audit_events.details`.
 
 ## Open TODOs
 

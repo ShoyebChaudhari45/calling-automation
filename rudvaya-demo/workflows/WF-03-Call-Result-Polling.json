@@ -94,11 +94,11 @@
     },
     {
       "parameters": {
-        "amount": 15,
+        "amount": 5,
         "unit": "seconds"
       },
       "id": "c3000000-0006-4000-8000-000000000006",
-      "name": "Wait 15s",
+      "name": "Wait 5s",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
@@ -131,7 +131,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Field names confirmed against Bolna's live API docs (executions/get_execution).\nconst r = $json;\nconst prev = $('Init Poll State').item.json;\nconst pollCount = (prev.poll_count || 0) + 1;\n\nconst status = (r.status || '').toLowerCase();\nconst IN_FLIGHT = ['scheduled', 'queued', 'rescheduled', 'initiated', 'ringing', 'in-progress'];\nconst terminal = !IN_FLIGHT.includes(status);\n\nreturn {\n  json: {\n    ...prev,\n    poll_count: pollCount,\n    bolna_status: status,\n    terminal,\n    transcript: r.transcript || null,\n    bolna_summary: r.summary || null,\n    duration_seconds: r.conversation_duration ?? r.telephony_data?.duration ?? null,\n    recording_url: r.telephony_data?.recording_url || null\n  }\n};"
+        "jsCode": "// Field names confirmed against Bolna's live API docs (executions/get_execution).\nconst r = $json;\nconst prev = $('Init Poll State').item.json;\n// prev is always Init Poll State's output (poll_count 0), so count polls by this node's own run index instead.\nconst pollCount = $runIndex + 1;\n\nconst status = (r.status || '').toLowerCase();\nconst IN_FLIGHT = ['scheduled', 'queued', 'rescheduled', 'initiated', 'ringing', 'in-progress'];\nconst terminal = !IN_FLIGHT.includes(status);\n\nreturn {\n  json: {\n    ...prev,\n    poll_count: pollCount,\n    bolna_status: status,\n    terminal,\n    transcript: r.transcript || null,\n    bolna_summary: r.summary || null,\n    duration_seconds: r.conversation_duration ?? r.telephony_data?.duration ?? null,\n    recording_url: r.telephony_data?.recording_url || null\n  }\n};"
       },
       "id": "c3000000-0008-4000-8000-000000000008",
       "name": "Check Finished",
@@ -186,7 +186,7 @@
             {
               "id": "c3000000-0011-4000-8000-000000000011",
               "leftValue": "={{$json.poll_count}}",
-              "rightValue": 40,
+              "rightValue": 120,
               "operator": {
                 "type": "number",
                 "operation": "lt"
@@ -431,7 +431,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const call = $('Outcome Check').itemMatching($itemIndex) ? $('Outcome Check').itemMatching($itemIndex).json : $('Init Poll State').first().json;\nreturn {\n  json: {\n    ...call,\n    property: $json.property,\n    openai_model: $json.openai_model\n  }\n};"
+        "jsCode": "const call = $('Outcome Check').first().json;\nreturn {\n  json: {\n    ...call,\n    property: $json.property,\n    openai_model: $json.openai_model\n  }\n};"
       },
       "id": "c3000000-0024-4000-8000-000000000024",
       "name": "Merge Facts Into Call",
@@ -468,12 +468,16 @@
           "name": "Rudvaya OpenAI"
         }
       },
-      "notes": "CREDENTIAL REQUIRED (OpenAI). Uses HTTP Request with Predefined Credential Type = OpenAi so the Bearer header is handled by n8n. Model name always comes from app_config.openai_model via Load Facts + Model — never hardcoded."
+      "notes": "CREDENTIAL REQUIRED (OpenAI). Uses HTTP Request with Predefined Credential Type = OpenAi so the Bearer header is handled by n8n. Model name always comes from app_config.openai_model via Load Facts + Model — never hardcoded.",
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const ENUM = {\n  lead_status: ['interested','callback','visit_requested','not_interested','opted_out','escalated','review'],\n  customer_sentiment: ['happy','neutral','confused','busy','frustrated','angry'],\n  property_type: ['2BHK','3BHK','other','unknown']\n};\nconst BOOL = ['interested','callback_required','site_visit_requested','office_visit_requested','opt_out','escalation_required'];\n\nlet r, errors = [];\ntry {\n  const raw = $json.choices?.[0]?.message?.content;\n  r = JSON.parse(String(raw).replace(/```json|```/g, '').trim());\n} catch (e) {\n  return { json: { valid: false, errors: ['not_json'] } };\n}\nfor (const [k, vals] of Object.entries(ENUM)) if (!vals.includes(r[k])) errors.push(k);\nfor (const k of BOOL) if (typeof r[k] !== 'boolean') errors.push(k);\nif (r.opt_out && r.lead_status !== 'opted_out') r.lead_status = 'opted_out';\nif (r.callback_time && isNaN(Date.parse(r.callback_time))) r.callback_time = null;\n\nconst callCtx = $('Merge Facts Into Call').first().json;\nreturn { json: { valid: errors.length === 0, errors, result: r, call_attempt_id: callCtx.call_attempt_id, lead_id: callCtx.lead_id, duration_seconds: callCtx.duration_seconds, recording_url: callCtx.recording_url, transcript: callCtx.transcript } };"
+        "jsCode": "const ENUM = {\n  lead_status: ['interested','callback','visit_requested','not_interested','opted_out','escalated','review'],\n  customer_sentiment: ['happy','neutral','confused','busy','frustrated','angry'],\n  property_type: ['2BHK','3BHK','other','unknown']\n};\nconst BOOL = ['interested','callback_required','site_visit_requested','office_visit_requested','opt_out','escalation_required'];\n\nconst callCtx = $('Merge Facts Into Call').first().json;\nconst ctx = { call_attempt_id: callCtx.call_attempt_id, lead_id: callCtx.lead_id, duration_seconds: callCtx.duration_seconds, recording_url: callCtx.recording_url, transcript: callCtx.transcript };\nlet r, errors = [];\ntry {\n  const raw = $json.choices?.[0]?.message?.content;\n  r = JSON.parse(String(raw).replace(/```json|```/g, '').trim());\n} catch (e) {\n  return { json: { valid: false, errors: ['not_json', $json.error ? JSON.stringify($json.error).slice(0, 800) : 'unparseable'], ...ctx } };\n}\nfor (const [k, vals] of Object.entries(ENUM)) if (!vals.includes(r[k])) errors.push(k);\nfor (const k of BOOL) if (typeof r[k] !== 'boolean') errors.push(k);\nif (r.opt_out && r.lead_status !== 'opted_out') r.lead_status = 'opted_out';\nif (r.callback_time && isNaN(Date.parse(r.callback_time))) r.callback_time = null;\n\nreturn { json: { valid: errors.length === 0, errors, result: r, ...ctx } };"
       },
       "id": "c3000000-0026-4000-8000-000000000026",
       "name": "Validate JSON",
@@ -562,7 +566,10 @@
           "name": "Rudvaya Supabase Postgres"
         }
       },
-      "notes": "CREDENTIAL REQUIRED."
+      "notes": "CREDENTIAL REQUIRED.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
     },
     {
       "parameters": {
@@ -873,6 +880,33 @@
         }
       },
       "notes": "CREDENTIAL REQUIRED."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE call_attempts SET status = $2, transcript = $3, duration_seconds = $4, recording_url = $5, summary = COALESCE($6, summary), poll_count = $7, ended_at = now() WHERE id = $1;\nUPDATE leads SET status = 'contacted', updated_at = now() WHERE id = $8;",
+        "options": {
+          "queryReplacement": "={{ [$json.call_attempt_id, $json.bolna_status, $json.transcript, $json.duration_seconds, $json.recording_url, $json.bolna_summary, $json.poll_count, $json.lead_id] }}"
+        }
+      },
+      "id": "c3000000-0040-4000-8000-000000000040",
+      "name": "Save Call Data (instant)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1660,
+        -380
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "32a87679-ef80-4766-b60d-01651c64da42",
+          "name": "Rudvaya Supabase Postgres"
+        }
+      },
+      "notes": "CREDENTIAL REQUIRED. Saves the transcript/recording the moment the call ends so the dashboard updates immediately, even if AI classification later fails."
     }
   ],
   "connections": {
@@ -909,18 +943,7 @@
         ],
         [
           {
-            "node": "Wait 15s",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Wait 15s": {
-      "main": [
-        [
-          {
-            "node": "Get Execution",
+            "node": "Wait 5s",
             "type": "main",
             "index": 0
           }
@@ -971,7 +994,7 @@
       "main": [
         [
           {
-            "node": "Wait 15s",
+            "node": "Wait 5s",
             "type": "main",
             "index": 0
           }
@@ -1000,7 +1023,7 @@
       "main": [
         [
           {
-            "node": "Load Facts + Model",
+            "node": "Save Call Data (instant)",
             "type": "main",
             "index": 0
           }
@@ -1189,6 +1212,28 @@
         [
           {
             "node": "C: Send visit_ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s": {
+      "main": [
+        [
+          {
+            "node": "Get Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Call Data (instant)": {
+      "main": [
+        [
+          {
+            "node": "Load Facts + Model",
             "type": "main",
             "index": 0
           }
