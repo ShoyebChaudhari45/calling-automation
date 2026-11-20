@@ -406,7 +406,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: false, blocked_reason: $json.block_reason } }}"
+        "responseBody": "={{ { ok: false, blocked_reason: $('Eligibility Gate').first().json.block_reason } }}"
       },
       "id": "b2000000-0022-4000-8000-000000000022",
       "name": "Respond Blocked",

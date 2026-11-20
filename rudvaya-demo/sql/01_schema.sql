@@ -55,7 +55,8 @@ create table leads (
   consent_at timestamptz,
   do_not_contact boolean not null default false,
   status text not null default 'new',
-    -- new | contacting | interested | callback | visit_requested |
+    -- new | contacting | contacted (call ended, AI analysis pending) |
+    -- interested | callback | visit_requested |
     -- not_interested | opted_out | review | escalated
   attempt_count int not null default 0,
   is_demo boolean not null default true,
